@@ -1,0 +1,35 @@
+{
+  "appName": "Crewtree",
+  "project": "Project",
+  "sessions": "Sessions",
+  "agents": "Agents",
+  "skills": "Skills",
+  "commands": "Commands",
+  "memory": "Memory",
+  "mcp": "MCP Servers",
+  "plugins": "Plugins",
+  "settings": "Settings",
+  "approvals": "pending approvals",
+  "status": {
+    "idle": "Idle",
+    "running": "Running",
+    "queued": "Queued",
+    "waitingChildren": "Waiting for children",
+    "waitingInput": "Waiting for approval",
+    "needsInput": "Needs your input",
+    "throttled": "Throttled",
+    "suspended": "Suspended",
+    "error": "Error",
+    "done": "Done"
+  },
+  "actions": {
+    "newSession": "New session",
+    "open": "Open",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "allowOnce": "Allow once",
+    "alwaysAllow": "Always allow",
+    "deny": "Deny"
+  }
+}

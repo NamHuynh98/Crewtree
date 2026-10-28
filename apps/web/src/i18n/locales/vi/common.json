@@ -1,0 +1,35 @@
+{
+  "appName": "Crewtree",
+  "project": "Dự án",
+  "sessions": "Sessions",
+  "agents": "Agents",
+  "skills": "Skills",
+  "commands": "Commands",
+  "memory": "Memory",
+  "mcp": "MCP Servers",
+  "plugins": "Plugins",
+  "settings": "Cài đặt",
+  "approvals": "yêu cầu chờ duyệt",
+  "status": {
+    "idle": "Rảnh",
+    "running": "Đang chạy",
+    "queued": "Xếp hàng",
+    "waitingChildren": "Chờ agent con",
+    "waitingInput": "Chờ duyệt quyền",
+    "needsInput": "Cần bạn trả lời",
+    "throttled": "Bị giới hạn tốc độ",
+    "suspended": "Tạm nghỉ",
+    "error": "Lỗi",
+    "done": "Hoàn thành"
+  },
+  "actions": {
+    "newSession": "Tạo session mới",
+    "open": "Mở",
+    "save": "Lưu",
+    "cancel": "Hủy",
+    "delete": "Xóa",
+    "allowOnce": "Cho phép 1 lần",
+    "alwaysAllow": "Luôn cho phép",
+    "deny": "Từ chối"
+  }
+}
