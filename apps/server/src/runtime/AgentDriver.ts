@@ -20,6 +20,12 @@ export interface DriverOptions {
   resumeSessionId?: string;
   sessionAgentId: string;
   mcpServers?: Record<string, any>;
+  configGroups?: {
+    claudemd?: boolean;
+    skillsPlugins?: boolean;
+    hooks?: boolean;
+    permissions?: boolean;
+  };
   onEvent?: (event: any) => void;
   canUseTool?: (toolName: string, input: any) => Promise<{ allow: boolean; reason?: string }>;
 }

@@ -3,6 +3,9 @@ import Fastify from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyWebsocket from '@fastify/websocket';
+import fastifyStatic from '@fastify/static';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { getDb, closeDb } from './db/index.js';
 import { appSettingsTable } from './db/schema.js';
 import { eq } from 'drizzle-orm';
@@ -55,6 +58,26 @@ export async function createServer() {
   });
 
   await fastify.register(fastifyWebsocket);
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const webDistPath = path.resolve(__dirname, '../../web/dist');
+
+  if (fs.existsSync(webDistPath)) {
+    await fastify.register(fastifyStatic, {
+      root: webDistPath,
+      prefix: '/',
+      wildcard: false,
+    });
+
+    fastify.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/api') || req.url.startsWith('/ws')) {
+        reply.code(404).send({ error: 'Route not found' });
+      } else {
+        reply.sendFile('index.html');
+      }
+    });
+  }
 
   // Security Check: Host & Origin validation (PLAN.md Section 15.3)
   fastify.addHook('onRequest', async (req, reply) => {

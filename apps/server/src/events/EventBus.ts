@@ -11,9 +11,18 @@ export interface WsSocket {
   on(event: string, listener: (...args: any[]) => void): void;
 }
 
+interface DeltaBuffer {
+  text: string;
+  sessionId: string;
+  sessionAgentId: string;
+  ts: number;
+}
+
 export class EventBus extends EventEmitter {
   private static instance: EventBus;
   private wsClients = new Set<{ ws: WsSocket; sessionId?: string }>();
+  private deltaBuffer = new Map<string, DeltaBuffer>();
+  private deltaFlushTimer?: NodeJS.Timeout;
 
   private constructor() {
     super();
@@ -48,21 +57,49 @@ export class EventBus extends EventEmitter {
     const db = getDb();
     let savedEventId: number | undefined;
 
-    // Persist to SQLite unless it is a high-frequency ephemeral text delta
-    // Text deltas are streamed via WS but only aggregated text.done is persisted
-    if (event.type !== 'agent.text.delta') {
-      try {
-        const result = db.insert(eventsTable).values({
-          sessionId: event.sessionId,
-          sessionAgentId: event.sessionAgentId ?? null,
-          type: event.type,
-          payload: JSON.stringify(event.payload),
+    // Flush pending deltas before persisted events so ordering is correct
+    if (event.type === 'agent.text.done' || event.type === 'agent.status' || event.type === 'agent.tool.start') {
+      this.flushDeltas();
+    }
+
+    // Buffer text deltas — send in ~50ms batches to reduce WS pressure
+    if (event.type === 'agent.text.delta') {
+      const key = event.sessionAgentId ?? event.sessionId ?? 'global';
+      const existing = this.deltaBuffer.get(key);
+      if (existing) {
+        existing.text += event.payload?.text || '';
+      } else {
+        this.deltaBuffer.set(key, {
+          text: event.payload?.text || '',
+          sessionId: event.sessionId ?? '',
+          sessionAgentId: event.sessionAgentId ?? '',
           ts: event.ts || Date.now(),
-        }).run();
-        savedEventId = Number(result.lastInsertRowid);
-      } catch (err) {
-        console.error('Failed to persist event to SQLite:', err);
+        });
       }
+      if (!this.deltaFlushTimer) {
+        this.deltaFlushTimer = setTimeout(() => this.flushDeltas(), 50);
+      }
+
+      // Emit on local node event emitter immediately (for internal listeners)
+      this.emit('event', event);
+      if (event.sessionId) {
+        this.emit(`session:${event.sessionId}`, event);
+      }
+      return event;
+    }
+
+    // Persist to SQLite (except high-frequency text deltas — already returned above)
+    try {
+      const result = db.insert(eventsTable).values({
+        sessionId: event.sessionId,
+        sessionAgentId: event.sessionAgentId ?? null,
+        type: event.type,
+        payload: JSON.stringify(event.payload),
+        ts: event.ts || Date.now(),
+      }).run();
+      savedEventId = Number(result.lastInsertRowid);
+    } catch (err) {
+      console.error('Failed to persist event to SQLite:', err);
     }
 
     const finalEvent: AgentEvent = {
@@ -82,10 +119,30 @@ export class EventBus extends EventEmitter {
     return finalEvent;
   }
 
+  private flushDeltas() {
+    if (this.deltaFlushTimer) {
+      clearTimeout(this.deltaFlushTimer);
+      this.deltaFlushTimer = undefined;
+    }
+
+    for (const [, buffer] of this.deltaBuffer) {
+      const batchedEvent: AgentEvent = {
+        sessionId: buffer.sessionId,
+        sessionAgentId: buffer.sessionAgentId,
+        type: 'agent.text.delta',
+        payload: { text: buffer.text },
+        ts: buffer.ts,
+      };
+      this.broadcastWs(batchedEvent);
+    }
+    this.deltaBuffer.clear();
+  }
+
   private broadcastWs(event: AgentEvent) {
     const payloadStr = JSON.stringify(event);
     for (const client of this.wsClients) {
-      if (client.ws.readyState === WebSocket.OPEN) {
+      // 1 = WebSocket.OPEN (using literal to avoid browser WebSocket global dependency)
+      if (client.ws.readyState === 1) {
         // Global events or matching session events
         if (!client.sessionId || client.sessionId === event.sessionId || !event.sessionId) {
           try {

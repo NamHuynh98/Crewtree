@@ -89,6 +89,29 @@ export class EventNormalizer {
       }
     }
 
+    // Rate limit events from the SDK
+    if (rawMessage.type === 'rate_limit_event') {
+      const retryAfterMs = (rawMessage.retry_after_seconds || 60) * 1000;
+      events.push({
+        sessionId: this.ctx.sessionId,
+        sessionAgentId: this.ctx.sessionAgentId,
+        type: 'agent.status',
+        payload: { status: 'throttled', retryAfterMs },
+        ts: now,
+      });
+    }
+
+    // System message: contains session_id
+    if (rawMessage.type === 'system' && rawMessage.session_id) {
+      events.push({
+        sessionId: this.ctx.sessionId,
+        sessionAgentId: this.ctx.sessionAgentId,
+        type: 'agent.status',
+        payload: { status: 'running', sdkSessionId: rawMessage.session_id },
+        ts: now,
+      });
+    }
+
     return events;
   }
 

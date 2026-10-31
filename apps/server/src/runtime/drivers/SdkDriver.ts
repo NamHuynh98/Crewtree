@@ -93,6 +93,19 @@ export class SdkDriver implements AgentDriver {
       queryOptions.mcpServers = options.mcpServers;
     }
 
+    if (options.configGroups) {
+      if (options.configGroups.claudemd === false) {
+        queryOptions.settingSources = [];
+      }
+      if (options.configGroups.skillsPlugins === false) {
+        queryOptions.skills = [];
+      }
+      if (options.configGroups.permissions === false) {
+        queryOptions.permissionMode = 'bypassPermissions';
+        queryOptions.allowDangerouslySkipPermissions = true;
+      }
+    }
+
     try {
       this.queryInstance = query({
         prompt: this.inputQueue,

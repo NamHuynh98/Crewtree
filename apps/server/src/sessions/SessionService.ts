@@ -113,6 +113,7 @@ You are the Supervisor. Coordinate tasks for your team and provide clear, concis
       sessionId,
       sessionAgent: supervisorAgent,
       cwd: params.cwd,
+      configGroups: session.settings.configGroups,
     });
     await runtime.start();
     this.activeRuntimes.set(supervisorId, runtime);
@@ -193,6 +194,7 @@ You are the Supervisor. Coordinate tasks for your team and provide clear, concis
         sessionId,
         sessionAgent: supervisor,
         cwd: session.cwd,
+        configGroups: session.settings.configGroups,
       });
       await runtime.start();
       this.activeRuntimes.set(supervisor.id, runtime);

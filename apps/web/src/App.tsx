@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   Bot, 
@@ -17,7 +17,14 @@ import {
   ArrowLeft,
   Send,
   Loader2,
-  Wrench
+  Wrench,
+  PauseCircle,
+  Clock,
+  Coins,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Code2
 } from 'lucide-react';
 import { Session, SessionAgent, AgentEvent } from '@crewtree/shared';
 
@@ -25,7 +32,38 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  toolCalls?: Array<{ tool: string; input: any }>;
+  toolCalls?: Array<{ tool: string; toolUseId: string; input: any; output?: any; isError?: boolean }>;
+  isStreaming?: boolean;
+}
+
+interface UsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+}
+
+// Helper: map agent status to color classes
+function statusBadge(status: string) {
+  switch (status) {
+    case 'running': return 'bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800';
+    case 'waiting_input': return 'bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800';
+    case 'throttled': return 'bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800';
+    case 'suspended': return 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700';
+    case 'error': return 'bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800';
+    default: return 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
+  }
+}
+
+function statusIcon(status: string) {
+  switch (status) {
+    case 'running': return <Loader2 className="w-3 h-3 animate-spin" />;
+    case 'waiting_input': return <AlertTriangle className="w-3 h-3" />;
+    case 'throttled': return <Clock className="w-3 h-3" />;
+    case 'suspended': return <PauseCircle className="w-3 h-3" />;
+    case 'error': return <XCircle className="w-3 h-3" />;
+    default: return <CheckCircle2 className="w-3 h-3" />;
+  }
 }
 
 export function App() {
@@ -45,8 +83,13 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [throttledRetryMs, setThrottledRetryMs] = useState<number | null>(null);
+  const [usageStats, setUsageStats] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
+  const [showRawEventLog, setShowRawEventLog] = useState(false);
+  const [rawEvents, setRawEvents] = useState<AgentEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const lastEventIdRef = useRef<number>(0);
 
   // Load server health & sessions
   const loadSessions = () => {
@@ -71,6 +114,9 @@ export function App() {
       setCurrentSession(null);
       setAgents([]);
       setMessages([]);
+      setUsageStats({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
+      setThrottledRetryMs(null);
+      setRawEvents([]);
       return;
     }
 
@@ -83,13 +129,20 @@ export function App() {
 
     // Setup WebSocket for this session
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws?sessionId=${selectedSessionId}`;
+    const lastEvt = lastEventIdRef.current;
+    const wsUrl = `${protocol}//${window.location.host}/ws?sessionId=${selectedSessionId}${lastEvt ? `&lastEventId=${lastEvt}` : ''}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'subscribe', sessionId: selectedSessionId }));
+    };
 
     ws.onmessage = (event) => {
       try {
         const agentEvent: AgentEvent = JSON.parse(event.data);
+        if (agentEvent.id) lastEventIdRef.current = agentEvent.id;
+        setRawEvents((prev) => [agentEvent, ...prev.slice(0, 49)]);
         handleAgentEvent(agentEvent);
       } catch (err) {
         console.error('Failed to parse WS event', err);
@@ -103,21 +156,38 @@ export function App() {
   }, [selectedSessionId]);
 
   // Handle incoming live AgentEvents
-  const handleAgentEvent = (event: AgentEvent) => {
+  const handleAgentEvent = useCallback((event: AgentEvent) => {
     if (event.type === 'agent.status') {
       const status = event.payload?.status;
       setAgents((prev) =>
         prev.map((a) => (a.id === event.sessionAgentId ? { ...a, status } : a))
       );
-      if (status === 'running') setIsStreaming(true);
-      if (status === 'idle') setIsStreaming(false);
+      if (status === 'running') {
+        setIsStreaming(true);
+        setThrottledRetryMs(null);
+      }
+      if (status === 'idle' || status === 'suspended') {
+        setIsStreaming(false);
+        setThrottledRetryMs(null);
+      }
+      if (status === 'throttled') {
+        setIsStreaming(false);
+        setThrottledRetryMs(event.payload?.retryAfterMs ?? 60000);
+      }
+      if (status === 'error') {
+        setIsStreaming(false);
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now().toString(), role: 'system', content: `⚠️ Agent error: ${event.payload?.error || 'Unknown error'}` },
+        ]);
+      }
     }
 
     if (event.type === 'agent.text.delta') {
       const deltaText = event.payload?.text || '';
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant') {
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
           return [
             ...prev.slice(0, -1),
             { ...lastMsg, content: lastMsg.content + deltaText },
@@ -125,17 +195,28 @@ export function App() {
         } else {
           return [
             ...prev,
-            { id: Date.now().toString(), role: 'assistant', content: deltaText },
+            { id: Date.now().toString(), role: 'assistant', content: deltaText, isStreaming: true },
           ];
         }
       });
     }
 
-    if (event.type === 'agent.tool.start') {
-      const { tool, input } = event.payload;
+    if (event.type === 'agent.text.done') {
+      // Mark last assistant message as done (not streaming)
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
-        const newTool = { tool, input };
+        if (lastMsg && lastMsg.role === 'assistant') {
+          return [...prev.slice(0, -1), { ...lastMsg, isStreaming: false, content: event.payload?.text || lastMsg.content }];
+        }
+        return prev;
+      });
+    }
+
+    if (event.type === 'agent.tool.start') {
+      const { tool, toolUseId, input } = event.payload;
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        const newTool = { tool, toolUseId, input };
         if (lastMsg && lastMsg.role === 'assistant') {
           return [
             ...prev.slice(0, -1),
@@ -149,7 +230,28 @@ export function App() {
         }
       });
     }
-  };
+
+    if (event.type === 'agent.tool.end') {
+      const { toolUseId, output, isError } = event.payload;
+      setMessages((prev) =>
+        prev.map((m) => ({
+          ...m,
+          toolCalls: m.toolCalls?.map((tc) =>
+            tc.toolUseId === toolUseId ? { ...tc, output, isError } : tc
+          ),
+        }))
+      );
+    }
+
+    if (event.type === 'usage.updated') {
+      setUsageStats((prev) => ({
+        inputTokens: prev.inputTokens + (event.payload?.inputTokens || 0),
+        outputTokens: prev.outputTokens + (event.payload?.outputTokens || 0),
+        cacheReadTokens: prev.cacheReadTokens + (event.payload?.cacheReadTokens || 0),
+        cacheCreationTokens: prev.cacheCreationTokens + (event.payload?.cacheCreationTokens || 0),
+      }));
+    }
+  }, []);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -446,7 +548,28 @@ export function App() {
               <div className="text-xs text-zinc-500 flex items-center gap-3">
                 <span>{agents.length} agent(s)</span>
                 <span>•</span>
-                <span>{currentSession?.totalTokens || 0} tokens</span>
+                <span className="flex items-center gap-1">
+                  <Coins className="w-3 h-3" />
+                  {usageStats.inputTokens + usageStats.outputTokens} tokens
+                </span>
+                {throttledRetryMs !== null && (
+                  <span className="flex items-center gap-1 text-orange-500 font-medium">
+                    <Clock className="w-3 h-3" />
+                    Rate limited — retry in {Math.ceil(throttledRetryMs / 1000)}s
+                  </span>
+                )}
+                <button
+                  onClick={() => setShowRawEventLog((v) => !v)}
+                  className={`px-2 py-0.5 text-[11px] rounded font-medium border flex items-center gap-1.5 transition ${
+                    showRawEventLog
+                      ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700'
+                      : 'text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                  }`}
+                  title="Toggle Raw Event Log"
+                >
+                  <Code2 className="w-3 h-3" />
+                  <span>Event Log</span>
+                </button>
               </div>
             </div>
 
@@ -463,22 +586,15 @@ export function App() {
                       key={agent.id}
                       className="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm"
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2">
                           <Bot className="w-4 h-4 text-indigo-500" />
                           <span className="font-semibold text-xs text-zinc-900 dark:text-zinc-100">
                             {agent.alias || agent.agentName}
                           </span>
                         </div>
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                            agent.status === 'running'
-                              ? 'bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
-                              : agent.status === 'waiting_input'
-                              ? 'bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400'
-                              : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'
-                          }`}
-                        >
+                        <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${statusBadge(agent.status ?? 'idle')}`}>
+                          {statusIcon(agent.status ?? 'idle')}
                           {agent.status}
                         </span>
                       </div>
@@ -502,32 +618,68 @@ export function App() {
                     messages.map((m) => (
                       <div
                         key={m.id}
-                        className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
+                        className={`flex flex-col ${m.role === 'user' ? 'items-end' : m.role === 'system' ? 'items-center' : 'items-start'}`}
                       >
-                        <div
-                          className={`max-w-[80%] rounded-xl px-4 py-2.5 text-xs leading-relaxed ${
-                            m.role === 'user'
-                              ? 'bg-indigo-600 text-white rounded-br-sm'
-                              : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 rounded-bl-sm border border-zinc-200 dark:border-zinc-800'
-                          }`}
-                        >
-                          {/* Tool chips if any */}
-                          {m.toolCalls && m.toolCalls.length > 0 && (
-                            <div className="mb-2 space-y-1">
-                              {m.toolCalls.map((tc, idx) => (
-                                <div
-                                  key={idx}
-                                  className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/5 dark:bg-white/5 text-[11px] font-mono text-zinc-600 dark:text-zinc-300"
-                                >
-                                  <Wrench className="w-3 h-3 text-indigo-400" />
-                                  <span>{tc.tool}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                        {m.role === 'system' ? (
+                          <div className="text-[11px] text-zinc-400 italic py-1">{m.content}</div>
+                        ) : (
+                          <div
+                            className={`max-w-[80%] rounded-xl px-4 py-2.5 text-xs leading-relaxed ${
+                              m.role === 'user'
+                                ? 'bg-indigo-600 text-white rounded-br-sm'
+                                : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 rounded-bl-sm border border-zinc-200 dark:border-zinc-800'
+                            }`}
+                          >
+                            {/* Tool chips if any */}
+                            {m.toolCalls && m.toolCalls.length > 0 && (
+                              <div className="mb-2 space-y-1">
+                                {m.toolCalls.map((tc, idx) => (
+                                  <details
+                                    key={idx}
+                                    className={`px-2 py-1.5 rounded text-[11px] font-mono border ${
+                                      tc.isError
+                                        ? 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50'
+                                        : tc.output !== undefined
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/50'
+                                        : 'bg-black/5 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 border-black/5 dark:border-white/5'
+                                    }`}
+                                  >
+                                    <summary className="cursor-pointer select-none flex items-center gap-1.5 list-none">
+                                      {tc.isError ? (
+                                        <XCircle className="w-3 h-3 text-red-400 shrink-0" />
+                                      ) : tc.output !== undefined ? (
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                                      ) : (
+                                        <Wrench className="w-3 h-3 animate-pulse text-indigo-400 shrink-0" />
+                                      )}
+                                      <span className="font-semibold">{tc.tool}</span>
+                                      <span className="text-[10px] opacity-60 ml-auto">details</span>
+                                    </summary>
+                                    <div className="mt-2 pt-1.5 border-t border-black/10 dark:border-white/10 space-y-1 text-[10px]">
+                                      {tc.input && (
+                                        <div>
+                                          <div className="text-[9px] uppercase tracking-wider opacity-60 font-sans font-semibold">Input:</div>
+                                          <pre className="overflow-x-auto whitespace-pre-wrap max-h-32">{JSON.stringify(tc.input, null, 2)}</pre>
+                                        </div>
+                                      )}
+                                      {tc.output !== undefined && (
+                                        <div className="mt-1 pt-1 border-t border-black/5 dark:border-white/5">
+                                          <div className="text-[9px] uppercase tracking-wider opacity-60 font-sans font-semibold">Output:</div>
+                                          <pre className="overflow-x-auto whitespace-pre-wrap max-h-32">{typeof tc.output === 'string' ? tc.output : JSON.stringify(tc.output, null, 2)}</pre>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </details>
+                                ))}
+                              </div>
+                            )}
 
-                          <div className="whitespace-pre-wrap">{m.content}</div>
-                        </div>
+                            <div className="whitespace-pre-wrap">{m.content}</div>
+                            {m.isStreaming && (
+                              <span className="inline-block w-1.5 h-3.5 bg-indigo-500 rounded-sm ml-0.5 animate-pulse" />
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))
                   )}
@@ -536,6 +688,13 @@ export function App() {
                     <div className="flex items-center gap-2 text-xs text-zinc-400">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
                       <span>Supervisor is thinking and responding...</span>
+                    </div>
+                  )}
+
+                  {throttledRetryMs !== null && (
+                    <div className="flex items-center gap-2 text-xs text-orange-500 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-2">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Rate limited by Claude API — auto-retrying in {Math.ceil(throttledRetryMs / 1000)} seconds</span>
                     </div>
                   )}
 
@@ -552,18 +711,45 @@ export function App() {
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
                     placeholder="Message Supervisor (e.g. Break down the task, delegate to coder)..."
-                    disabled={isStreaming}
+                    disabled={isStreaming || throttledRetryMs !== null}
                     className="flex-1 px-3 py-2 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                   />
                   <button
                     type="submit"
-                    disabled={!inputMessage.trim() || isStreaming}
+                   disabled={!inputMessage.trim() || isStreaming || throttledRetryMs !== null}
                     className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 transition shadow-sm"
                   >
                     <Send className="w-4 h-4" />
                   </button>
                 </form>
               </div>
+
+              {/* Live Event Log Panel (collapsible) */}
+              {showRawEventLog && (
+                <div className="w-80 border-l border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 p-3 flex flex-col overflow-hidden text-xs">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-200 dark:border-zinc-800">
+                    <span className="font-semibold text-[11px] uppercase tracking-wider text-zinc-400">Live Event Log</span>
+                    <span className="text-[10px] text-zinc-500 font-mono">{rawEvents.length} events</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto space-y-2 font-mono text-[11px]">
+                    {rawEvents.length === 0 ? (
+                      <div className="text-zinc-400 text-center py-8 text-xs">No events captured yet</div>
+                    ) : (
+                      rawEvents.map((e, idx) => (
+                        <div key={idx} className="p-2 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs">
+                          <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
+                            <span className="text-indigo-600 dark:text-indigo-400 font-semibold">{e.type}</span>
+                            <span>{new Date(e.ts).toLocaleTimeString()}</span>
+                          </div>
+                          <div className="text-zinc-600 dark:text-zinc-300 text-[10px] break-all max-h-24 overflow-y-auto bg-black/5 dark:bg-black/30 p-1.5 rounded">
+                            {JSON.stringify(e.payload)}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
