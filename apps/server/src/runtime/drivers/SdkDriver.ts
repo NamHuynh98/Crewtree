@@ -62,6 +62,7 @@ export class SdkDriver implements AgentDriver {
   };
 
   private options?: DriverOptions;
+  private lastQueryOptions?: any;
   private inputQueue = new AsyncQueue<any>();
   private queryInstance?: Query;
   private isDisposed = false;
@@ -106,6 +107,8 @@ export class SdkDriver implements AgentDriver {
       }
     }
 
+    this.lastQueryOptions = queryOptions;
+
     try {
       this.queryInstance = query({
         prompt: this.inputQueue,
@@ -129,15 +132,43 @@ export class SdkDriver implements AgentDriver {
   private async consumeStream(): Promise<void> {
     if (!this.queryInstance) return;
 
-    for await (const message of this.queryInstance) {
-      if (this.isDisposed) break;
+    try {
+      for await (const message of this.queryInstance) {
+        if (this.isDisposed) break;
 
-      // Extract SDK session ID if not yet captured
-      if (!this.sdkSessionId && (message as any).session_id) {
-        this.sdkSessionId = (message as any).session_id;
+        // Extract SDK session ID if not yet captured
+        if (!this.sdkSessionId && (message as any).session_id) {
+          this.sdkSessionId = (message as any).session_id;
+        }
+
+        this.options?.onEvent?.(message);
+      }
+    } catch (err: any) {
+      // If resuming an old/expired session failed, automatically fallback to a fresh session
+      if (
+        this.options?.resumeSessionId &&
+        err.message?.includes('No conversation found with session ID')
+      ) {
+        console.warn(
+          `[SdkDriver] Resume session "${this.options.resumeSessionId}" not found. Restarting with clean session...`
+        );
+        this.options.resumeSessionId = undefined;
+        this.sdkSessionId = undefined;
+
+        const freshOptions = { ...this.lastQueryOptions, resume: undefined };
+        this.queryInstance = query({
+          prompt: this.inputQueue,
+          options: freshOptions,
+        });
+
+        return this.consumeStream();
       }
 
-      this.options?.onEvent?.(message);
+      console.error(`[SdkDriver] Error in stream for agent ${this.options?.sessionAgentId}:`, err);
+      this.options?.onEvent?.({
+        type: 'agent.status',
+        payload: { status: 'error', error: err.message },
+      });
     }
   }
 

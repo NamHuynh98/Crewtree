@@ -67,7 +67,6 @@ export async function createServer() {
     await fastify.register(fastifyStatic, {
       root: webDistPath,
       prefix: '/',
-      wildcard: false,
     });
 
     fastify.setNotFoundHandler((req, reply) => {
@@ -234,7 +233,8 @@ export async function createServer() {
       return;
     }
     const agents = await sessionService.getSessionAgents(id);
-    return { session, agents };
+    const messages = await sessionService.getSessionMessages(id);
+    return { session, agents, messages };
   });
 
   fastify.post('/api/sessions/:id/messages', async (req, reply) => {

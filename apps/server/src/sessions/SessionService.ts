@@ -4,7 +4,7 @@ import { sessionsTable, sessionAgentsTable, messagesTable } from '../db/schema.j
 import { Session, SessionAgent, SessionSettingsSchema } from '@crewtree/shared';
 import { AgentRuntime } from '../runtime/AgentRuntime.js';
 import { nanoid } from 'nanoid';
-import { eq } from 'drizzle-orm';
+import { eq, inArray, asc } from 'drizzle-orm';
 import { EventBus } from '../events/EventBus.js';
 
 export class SessionService {
@@ -16,6 +16,15 @@ export class SessionService {
   public static getInstance(): SessionService {
     if (!SessionService.instance) {
       SessionService.instance = new SessionService();
+      try {
+        const db = getDb();
+        db.update(sessionAgentsTable)
+          .set({ status: 'idle' })
+          .where(eq(sessionAgentsTable.status, 'running'))
+          .run();
+      } catch (e) {
+        console.error('Failed to reconcile stale session agent statuses:', e);
+      }
     }
     return SessionService.instance;
   }
@@ -178,6 +187,40 @@ You are the Supervisor. Coordinate tasks for your team and provide clear, concis
       status: r.status as any,
       lastActiveAt: r.lastActiveAt,
     }));
+  }
+
+  public async getSessionMessages(sessionId: string) {
+    const db = getDb();
+    const agents = await this.getSessionAgents(sessionId);
+    const agentIds = agents.map((a) => a.id);
+    if (agentIds.length === 0) return [];
+
+    const rows = db
+      .select()
+      .from(messagesTable)
+      .where(inArray(messagesTable.sessionAgentId, agentIds))
+      .orderBy(asc(messagesTable.createdAt))
+      .all();
+
+    return rows.map((r) => {
+      let contentText = '';
+      try {
+        const parsed = JSON.parse(r.content);
+        if (Array.isArray(parsed)) {
+          contentText = parsed.map((p: any) => p.text || '').join('');
+        } else if (typeof parsed === 'string') {
+          contentText = parsed;
+        }
+      } catch {
+        contentText = r.content;
+      }
+      return {
+        id: r.id,
+        role: r.role as 'user' | 'assistant' | 'system',
+        content: contentText,
+        createdAt: r.createdAt,
+      };
+    });
   }
 
   public async sendMessageToSupervisor(sessionId: string, text: string): Promise<void> {

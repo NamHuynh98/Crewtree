@@ -125,6 +125,11 @@ export function App() {
       .then((data) => {
         setCurrentSession(data.session);
         setAgents(data.agents);
+        if (Array.isArray(data.messages) && data.messages.length > 0) {
+          setMessages(data.messages);
+        } else {
+          setMessages([]);
+        }
       });
 
     // Setup WebSocket for this session

@@ -8,7 +8,8 @@ import { EventNormalizer } from './eventNormalizer.js';
 import { EventBus } from '../events/EventBus.js';
 import { AgentStatus, SessionAgent } from '@crewtree/shared';
 import { getDb } from '../db/index.js';
-import { sessionAgentsTable } from '../db/schema.js';
+import { sessionAgentsTable, messagesTable } from '../db/schema.js';
+import { nanoid } from 'nanoid';
 import { eq } from 'drizzle-orm';
 
 export interface AgentRuntimeOptions {
@@ -138,6 +139,19 @@ export class AgentRuntime {
       return;
     }
 
+    // Handle explicit error status directly
+    if (rawMsg.type === 'agent.status' && rawMsg.payload?.status === 'error') {
+      this.setStatus('error');
+      this.eventBus.emitEvent({
+        sessionId: this.options.sessionId,
+        sessionAgentId: this.options.sessionAgent.id,
+        type: 'agent.status',
+        payload: rawMsg.payload,
+        ts: Date.now(),
+      });
+      return;
+    }
+
     // If receiving output, mark as running
     if (this.status !== 'running' && this.status !== 'waiting_input' && this.status !== 'throttled') {
       this.setStatus('running');
@@ -166,6 +180,19 @@ export class AgentRuntime {
       const textDone = this.normalizer.flushTextDone();
       if (textDone) {
         this.eventBus.emitEvent(textDone);
+        try {
+          const db = getDb();
+          db.insert(messagesTable).values({
+            id: nanoid(),
+            sessionAgentId: this.options.sessionAgent.id,
+            role: 'assistant',
+            content: JSON.stringify([{ type: 'text', text: textDone.payload.text }]),
+            delivery: 'delivered',
+            createdAt: Date.now(),
+          }).run();
+        } catch (e) {
+          console.error('Failed to persist assistant message to DB:', e);
+        }
       }
       this.setStatus('idle');
       this.resetIdleTimer();
