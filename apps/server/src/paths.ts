@@ -12,7 +12,8 @@ export function getCrewtreeDir(): string {
 }
 
 export function getClaudeDir(): string {
-  return path.join(getHomeDir(), '.claude');
+  // Same override Claude Code itself honors
+  return process.env.CLAUDE_CONFIG_DIR || path.join(getHomeDir(), '.claude');
 }
 
 export function getCrewtreeAgentsDir(): string {

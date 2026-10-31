@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS is the primary platform; Windows runs natively from Phase 0 (PLAN.md 16.6)
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CREWTREE_DRIVER: fake
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format
+        run: pnpm format:check
+
+      - name: i18n keys
+        run: pnpm i18n:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit & integration tests (FakeDriver)
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build

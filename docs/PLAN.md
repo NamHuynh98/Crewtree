@@ -790,25 +790,25 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 > **Thứ tự:** làm phần lõi (runtime + điều phối) trước để kiểm chứng kiến trúc sớm, khi chưa có UI đầy đủ thì dùng một trang test tối giản (chỉ có ở chế độ dev). UI quản lý tài nguyên và Composer làm sau.
 
 ### Phase 0 — Nền móng và spike (3 ngày)
-- [ ] Monorepo pnpm + Turborepo, lint/format, `packages/shared`, CI test trên macOS và Windows
-- [ ] `paths.ts` đa nền tảng; trường `runtime` + interface `AgentDriver` có capabilities
-- [ ] Fastify khung + **bảo mật local** (127.0.0.1, Host/Origin, token phiên; `pnpm dev` in link `/auth`), Drizzle + migration, `app_settings`, `/api/health`, `/api/settings`, `/api/version`
-- [ ] Vite + React + Tailwind + shadcn, i18next với `en`/`vi` khung, chèn `__BOOT__` vào `index.html`
-- [ ] **Spike:**
+- [x] Monorepo pnpm + Turborepo, lint/format, `packages/shared`, CI test trên macOS và Windows
+- [x] `paths.ts` đa nền tảng; trường `runtime` + interface `AgentDriver` có capabilities
+- [x] Fastify khung + **bảo mật local** (127.0.0.1, Host/Origin, token phiên; `pnpm dev` in link `/auth`), Drizzle + migration, `app_settings`, `/api/health`, `/api/settings`, `/api/version`
+- [x] Vite + React + Tailwind + shadcn, i18next với `en`/`vi` khung, chèn `__BOOT__` vào `index.html`
+- [x] **Spike:**
   - Agent SDK chạy bằng credential `claude login` (không API key); streaming input + resume
   - MCP nội bộ gắn theo từng agent; tool call MCP chờ lâu (5–10 phút) có bị timeout không
   - `supportedModels()`; Claude Code chấp nhận frontmatter lạ; cú pháp `claude plugin …`, `claude mcp add/remove`
   - `settingSources` tách riêng CLAUDE.md / skills / hooks / permissions được không; giới hạn `skills`/`mcpServers` theo agent
   - Tín hiệu rate limit của tài khoản subscription; RAM mỗi tiến trình agent
   - Build `better-sqlite3` cho `win32-arm64` và runner Windows ARM
-- Kết quả: `pnpm dev` chạy server + web; báo cáo spike, chốt SdkDriver hay CliDriver
+- Kết quả: `pnpm dev` chạy server + web; báo cáo spike, chốt SdkDriver hay CliDriver → [SPIKE-REPORT.md](./SPIKE-REPORT.md): chọn **SdkDriver**, CliDriver dự phòng
 
 ### Phase 1 — Runtime một agent (3 ngày)
-- [ ] AgentDriver (SdkDriver/CliDriver/FakeDriver), AgentRuntime, eventNormalizer, MCP gắn theo agent
-- [ ] EventBus, lưu events (gộp delta), WS + gửi bù khi reconnect
-- [ ] Rate limit → throttled + backoff; quy tắc ngôn ngữ chat; nạp cấu hình Claude Code theo 4 nhóm
-- [ ] Tắt agent rảnh (`suspended`) + dựng lại bằng resume; `freshContextPerTask`
-- [ ] Trang test dev-only để chat với 1 agent
+- [x] AgentDriver (SdkDriver/CliDriver/FakeDriver), AgentRuntime, eventNormalizer, MCP gắn theo agent
+- [x] EventBus, lưu events (gộp delta), WS + gửi bù khi reconnect
+- [x] Rate limit → throttled + backoff; quy tắc ngôn ngữ chat; nạp cấu hình Claude Code theo 4 nhóm
+- [x] Tắt agent rảnh (`suspended`) + dựng lại bằng resume; `freshContextPerTask`
+- [x] Trang test dev-only để chat với 1 agent
 - Kết quả: chat với 1 agent, tool call stream realtime, suspend/resume hoạt động
 
 ### Phase 2 — Điều phối N tầng (6 ngày)

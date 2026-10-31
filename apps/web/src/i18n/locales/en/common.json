@@ -31,5 +31,7 @@
     "allowOnce": "Allow once",
     "alwaysAllow": "Always allow",
     "deny": "Deny"
-  }
+  },
+  "settingsSaveFailed": "Couldn't save settings.",
+  "retry": "Retry"
 }

@@ -24,40 +24,16 @@ export const TASK_STATUSES = [
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-export const SESSION_STATUSES = [
-  'active',
-  'paused',
-  'completed',
-  'stopped',
-  'error',
-] as const;
+export const SESSION_STATUSES = ['active', 'paused', 'completed', 'stopped', 'error'] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
-export const RESOURCE_KINDS = [
-  'agent',
-  'skill',
-  'command',
-  'memory',
-  'mcp',
-  'plugin',
-] as const;
+export const RESOURCE_KINDS = ['agent', 'skill', 'command', 'memory', 'mcp', 'plugin'] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
-export const RESOURCE_SCOPES = [
-  'crewtree',
-  'user',
-  'project',
-  'plugin',
-  'builtin',
-] as const;
+export const RESOURCE_SCOPES = ['crewtree', 'user', 'project', 'plugin', 'builtin'] as const;
 export type ResourceScope = (typeof RESOURCE_SCOPES)[number];
 
-export const RUNTIMES = [
-  'claude',
-  'opencode',
-  'codex',
-  'gemini-cli',
-] as const;
+export const RUNTIMES = ['claude', 'opencode', 'codex', 'gemini-cli'] as const;
 export type RuntimeType = (typeof RUNTIMES)[number];
 
 export const EVENT_TYPES = [

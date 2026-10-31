@@ -31,5 +31,7 @@
     "allowOnce": "Cho phép 1 lần",
     "alwaysAllow": "Luôn cho phép",
     "deny": "Từ chối"
-  }
+  },
+  "settingsSaveFailed": "Không lưu được cài đặt.",
+  "retry": "Thử lại"
 }

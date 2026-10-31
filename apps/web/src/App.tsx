@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { 
-  Bot, 
-  Sparkles, 
-  Terminal, 
-  Brain, 
-  Network, 
-  Puzzle, 
-  Settings, 
-  ShieldAlert, 
-  Sun, 
-  Moon, 
+import {
+  Bot,
+  Sparkles,
+  Terminal,
+  Brain,
+  Network,
+  Puzzle,
+  Settings,
+  ShieldAlert,
+  Sun,
+  Moon,
   Plus,
   Play,
   ArrowLeft,
@@ -24,9 +24,12 @@ import {
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  Code2
+  Code2,
+  Square,
 } from 'lucide-react';
 import { Session, SessionAgent, AgentEvent } from '@crewtree/shared';
+import { getBoot, resolveTheme, saveUiSettings, BootSettings } from './lib/boot';
+import { Button } from '@/components/ui/button';
 
 interface ChatMessage {
   id: string;
@@ -34,6 +37,8 @@ interface ChatMessage {
   content: string;
   toolCalls?: Array<{ tool: string; toolUseId: string; input: any; output?: any; isError?: boolean }>;
   isStreaming?: boolean;
+  /** Optimistic user message not yet confirmed by message.created */
+  pending?: boolean;
 }
 
 interface UsageStats {
@@ -43,40 +48,59 @@ interface UsageStats {
   cacheCreationTokens: number;
 }
 
+// Unique React keys for chat messages (several can be created in the same millisecond during replay)
+let keySeq = 0;
+const nextKey = (prefix = 'msg') => `${prefix}-${++keySeq}`;
+
 // Helper: map agent status to color classes
 function statusBadge(status: string) {
   switch (status) {
-    case 'running': return 'bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800';
-    case 'waiting_input': return 'bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800';
-    case 'throttled': return 'bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800';
-    case 'suspended': return 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700';
-    case 'error': return 'bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800';
-    default: return 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
+    case 'running':
+      return 'bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800';
+    case 'waiting_input':
+      return 'bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800';
+    case 'throttled':
+      return 'bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800';
+    case 'suspended':
+      return 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700';
+    case 'error':
+      return 'bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800';
+    default:
+      return 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
   }
 }
 
 function statusIcon(status: string) {
   switch (status) {
-    case 'running': return <Loader2 className="w-3 h-3 animate-spin" />;
-    case 'waiting_input': return <AlertTriangle className="w-3 h-3" />;
-    case 'throttled': return <Clock className="w-3 h-3" />;
-    case 'suspended': return <PauseCircle className="w-3 h-3" />;
-    case 'error': return <XCircle className="w-3 h-3" />;
-    default: return <CheckCircle2 className="w-3 h-3" />;
+    case 'running':
+      return <Loader2 className="w-3 h-3 animate-spin" />;
+    case 'waiting_input':
+      return <AlertTriangle className="w-3 h-3" />;
+    case 'throttled':
+      return <Clock className="w-3 h-3" />;
+    case 'suspended':
+      return <PauseCircle className="w-3 h-3" />;
+    case 'error':
+      return <XCircle className="w-3 h-3" />;
+    default:
+      return <CheckCircle2 className="w-3 h-3" />;
   }
 }
 
 export function App() {
   const { t, i18n } = useTranslation();
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => resolveTheme(getBoot().theme));
+  // Failed settings save: the UI keeps the new value and offers a retry (PLAN.md 11.1)
+  const [saveError, setSaveError] = useState<{ ui: Partial<BootSettings> } | null>(null);
   const [serverHealth, setServerHealth] = useState<{ status: string; version: string } | null>(null);
-  
+
   // Sessions & Selection
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [agents, setAgents] = useState<SessionAgent[]>([]);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
   const [newSessionTitle, setNewSessionTitle] = useState('');
 
   // Chat & Realtime State
@@ -84,17 +108,26 @@ export function App() {
   const [inputMessage, setInputMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [throttledRetryMs, setThrottledRetryMs] = useState<number | null>(null);
-  const [usageStats, setUsageStats] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
+  const [usageStats, setUsageStats] = useState<UsageStats>({
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+  });
   const [showRawEventLog, setShowRawEventLog] = useState(false);
   const [rawEvents, setRawEvents] = useState<AgentEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
-  const lastEventIdRef = useRef<number>(0);
+  // Last persisted event id per session, used to replay missed events on reconnect
+  const lastEventIdsRef = useRef<Record<string, number>>({});
 
   // Load server health & sessions
   const loadSessions = () => {
     fetch('/api/sessions')
-      .then((res) => res.json())
+      .then((res) => {
+        setAuthRequired(res.status === 401);
+        return res.json();
+      })
       .then((data) => setSessions(Array.isArray(data) ? data : []))
       .catch((err) => console.error('Failed to load sessions', err));
   };
@@ -108,65 +141,33 @@ export function App() {
     loadSessions();
   }, []);
 
-  // When a session is selected, load its details & connect WS
-  useEffect(() => {
-    if (!selectedSessionId) {
-      setCurrentSession(null);
-      setAgents([]);
-      setMessages([]);
-      setUsageStats({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
-      setThrottledRetryMs(null);
-      setRawEvents([]);
+  // Handle incoming live AgentEvents
+  // `history`: replaying persisted events — status and usage are already reflected in the loaded session
+  const handleAgentEvent = useCallback((event: AgentEvent, opts: { history?: boolean } = {}) => {
+    if (opts.history && event.type === 'agent.status') return;
+
+    if (event.type === 'message.created' && event.payload?.role === 'user') {
+      const text = event.payload.text ?? '';
+      setMessages((prev) => {
+        const pendingIdx = prev.findIndex((m) => m.pending && m.role === 'user' && m.content === text);
+        if (pendingIdx >= 0) {
+          return prev.map((m, i) => (i === pendingIdx ? { ...m, pending: false } : m));
+        }
+        return [...prev, { id: event.payload.messageId ?? nextKey('user'), role: 'user', content: text }];
+      });
       return;
     }
 
-    fetch(`/api/sessions/${selectedSessionId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        setCurrentSession(data.session);
-        setAgents(data.agents);
-        if (Array.isArray(data.messages) && data.messages.length > 0) {
-          setMessages(data.messages);
-        } else {
-          setMessages([]);
-        }
-      });
+    if (event.type === 'usage.updated' && event.payload?.isError) {
+      setMessages((prev) => [
+        ...prev,
+        { id: nextKey('ended'), role: 'system', content: 'Turn interrupted or failed.' },
+      ]);
+    }
 
-    // Setup WebSocket for this session
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const lastEvt = lastEventIdRef.current;
-    const wsUrl = `${protocol}//${window.location.host}/ws?sessionId=${selectedSessionId}${lastEvt ? `&lastEventId=${lastEvt}` : ''}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'subscribe', sessionId: selectedSessionId }));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const agentEvent: AgentEvent = JSON.parse(event.data);
-        if (agentEvent.id) lastEventIdRef.current = agentEvent.id;
-        setRawEvents((prev) => [agentEvent, ...prev.slice(0, 49)]);
-        handleAgentEvent(agentEvent);
-      } catch (err) {
-        console.error('Failed to parse WS event', err);
-      }
-    };
-
-    return () => {
-      ws.close();
-      wsRef.current = null;
-    };
-  }, [selectedSessionId]);
-
-  // Handle incoming live AgentEvents
-  const handleAgentEvent = useCallback((event: AgentEvent) => {
     if (event.type === 'agent.status') {
       const status = event.payload?.status;
-      setAgents((prev) =>
-        prev.map((a) => (a.id === event.sessionAgentId ? { ...a, status } : a))
-      );
+      setAgents((prev) => prev.map((a) => (a.id === event.sessionAgentId ? { ...a, status } : a)));
       if (status === 'running') {
         setIsStreaming(true);
         setThrottledRetryMs(null);
@@ -183,37 +184,37 @@ export function App() {
         setIsStreaming(false);
         setMessages((prev) => [
           ...prev,
-          { id: Date.now().toString(), role: 'system', content: `⚠️ Agent error: ${event.payload?.error || 'Unknown error'}` },
+          { id: nextKey(), role: 'system', content: `⚠️ Agent error: ${event.payload?.error || 'Unknown error'}` },
         ]);
       }
     }
+
+    // Output of Claude Code's own subagents (Task tool) is not part of this agent's chat
+    if (event.payload?.parentToolUseId) return;
 
     if (event.type === 'agent.text.delta') {
       const deltaText = event.payload?.text || '';
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          return [
-            ...prev.slice(0, -1),
-            { ...lastMsg, content: lastMsg.content + deltaText },
-          ];
+          return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + deltaText }];
         } else {
-          return [
-            ...prev,
-            { id: Date.now().toString(), role: 'assistant', content: deltaText, isStreaming: true },
-          ];
+          return [...prev, { id: nextKey(), role: 'assistant', content: deltaText, isStreaming: true }];
         }
       });
     }
 
     if (event.type === 'agent.text.done') {
-      // Mark last assistant message as done (not streaming)
+      // A text block is complete: finalize the streaming message, or add it if no deltas arrived
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant') {
-          return [...prev.slice(0, -1), { ...lastMsg, isStreaming: false, content: event.payload?.text || lastMsg.content }];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          return [
+            ...prev.slice(0, -1),
+            { ...lastMsg, isStreaming: false, content: event.payload?.text || lastMsg.content },
+          ];
         }
-        return prev;
+        return [...prev, { id: nextKey('done'), role: 'assistant', content: event.payload?.text || '' }];
       });
     }
 
@@ -223,15 +224,9 @@ export function App() {
         const lastMsg = prev[prev.length - 1];
         const newTool = { tool, toolUseId, input };
         if (lastMsg && lastMsg.role === 'assistant') {
-          return [
-            ...prev.slice(0, -1),
-            { ...lastMsg, toolCalls: [...(lastMsg.toolCalls || []), newTool] },
-          ];
+          return [...prev.slice(0, -1), { ...lastMsg, toolCalls: [...(lastMsg.toolCalls || []), newTool] }];
         } else {
-          return [
-            ...prev,
-            { id: Date.now().toString(), role: 'assistant', content: '', toolCalls: [newTool] },
-          ];
+          return [...prev, { id: nextKey(), role: 'assistant', content: '', toolCalls: [newTool] }];
         }
       });
     }
@@ -241,14 +236,12 @@ export function App() {
       setMessages((prev) =>
         prev.map((m) => ({
           ...m,
-          toolCalls: m.toolCalls?.map((tc) =>
-            tc.toolUseId === toolUseId ? { ...tc, output, isError } : tc
-          ),
+          toolCalls: m.toolCalls?.map((tc) => (tc.toolUseId === toolUseId ? { ...tc, output, isError } : tc)),
         }))
       );
     }
 
-    if (event.type === 'usage.updated') {
+    if (event.type === 'usage.updated' && !opts.history) {
       setUsageStats((prev) => ({
         inputTokens: prev.inputTokens + (event.payload?.inputTokens || 0),
         outputTokens: prev.outputTokens + (event.payload?.outputTokens || 0),
@@ -258,23 +251,115 @@ export function App() {
     }
   }, []);
 
+  // When a session is selected, load its details & connect WS
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setCurrentSession(null);
+      setAgents([]);
+      setMessages([]);
+      setUsageStats({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
+      setThrottledRetryMs(null);
+      setRawEvents([]);
+      return;
+    }
+
+    // WebSocket for this session; reconnects with backoff and replays events after lastEventId
+    const sessionId = selectedSessionId;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let closedByEffect = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+
+    const connect = () => {
+      const lastEvt = lastEventIdsRef.current[sessionId];
+      const wsUrl = `${protocol}//${window.location.host}/ws?sessionId=${sessionId}${lastEvt ? `&lastEventId=${lastEvt}` : ''}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        attempt = 0;
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const agentEvent: AgentEvent = JSON.parse(event.data);
+          if (!agentEvent.sessionId) return; // connected / pong
+          if (agentEvent.id) lastEventIdsRef.current[sessionId] = agentEvent.id;
+          setRawEvents((prev) => [agentEvent, ...prev.slice(0, 49)]);
+          handleAgentEvent(agentEvent);
+        } catch (err) {
+          console.error('Failed to parse WS event', err);
+        }
+      };
+
+      ws.onclose = () => {
+        if (closedByEffect) return;
+        const delay = Math.min(500 * 2 ** attempt++, 10_000);
+        retryTimer = setTimeout(connect, delay);
+      };
+    };
+
+    // Rebuild the chat (text + tool calls) from persisted events, then go live from the last event id
+    (async () => {
+      try {
+        const [detail, events] = await Promise.all([
+          fetch(`/api/sessions/${sessionId}`).then((res) => res.json()),
+          fetch(`/api/sessions/${sessionId}/events?after=0&limit=2000`).then((res) => res.json()),
+        ]);
+        if (closedByEffect) return;
+        setCurrentSession(detail.session);
+        setAgents(detail.agents);
+        setMessages([]);
+        setUsageStats({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
+        for (const evt of events as AgentEvent[]) {
+          if (evt.sessionAgentId !== detail.session.supervisorAgentId) continue;
+          handleAgentEvent(evt, { history: true });
+          if (evt.id) lastEventIdsRef.current[sessionId] = evt.id;
+        }
+        const supervisor = (detail.agents as SessionAgent[]).find((a) => a.id === detail.session.supervisorAgentId);
+        setIsStreaming(supervisor?.status === 'running' || supervisor?.status === 'waiting_input');
+      } catch (err) {
+        console.error('Failed to load session', err);
+      }
+      if (!closedByEffect) connect();
+    })();
+
+    return () => {
+      closedByEffect = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [selectedSessionId, handleAgentEvent]);
+
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
+
+  const persistUi = (ui: Partial<BootSettings>) => {
+    saveUiSettings(ui)
+      .then(() => setSaveError(null))
+      .catch((err) => {
+        console.error(err);
+        setSaveError({ ui });
+      });
+  };
+
   const toggleLanguage = () => {
     const nextLang = i18n.language === 'en' ? 'vi' : 'en';
     i18n.changeLanguage(nextLang);
+    document.documentElement.lang = nextLang;
+    persistUi({ language: nextLang });
   };
 
   const toggleTheme = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
-    if (nextTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    persistUi({ theme: nextTheme });
   };
 
   const handleCreateSession = async (e: React.FormEvent) => {
@@ -297,16 +382,24 @@ export function App() {
     }
   };
 
+  const handleInterrupt = async () => {
+    if (!selectedSessionId || !currentSession) return;
+    try {
+      await fetch(`/api/sessions/${selectedSessionId}/agents/${currentSession.supervisorAgentId}/interrupt`, {
+        method: 'POST',
+      });
+    } catch (err) {
+      console.error('Failed to interrupt agent', err);
+    }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim() || !selectedSessionId || isStreaming) return;
 
     const userText = inputMessage.trim();
     setInputMessage('');
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now().toString(), role: 'user', content: userText },
-    ]);
+    setMessages((prev) => [...prev, { id: nextKey(), role: 'user', content: userText, pending: true }]);
     setIsStreaming(true);
 
     try {
@@ -322,7 +415,9 @@ export function App() {
   };
 
   return (
-    <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}`}>
+    <div
+      className={`h-screen overflow-hidden flex flex-col ${theme === 'dark' ? 'dark bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}`}
+    >
       {/* Top Header */}
       <header className="h-12 border-b border-zinc-200 dark:border-zinc-800 px-4 flex items-center justify-between bg-white dark:bg-zinc-900 select-none">
         <div className="flex items-center gap-4">
@@ -396,27 +491,45 @@ export function App() {
                 Claude Config
               </div>
               <nav className="space-y-0.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                <a href="#agents" className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200">
+                <a
+                  href="#agents"
+                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
+                >
                   <Bot className="w-3.5 h-3.5" />
                   <span>{t('agents')}</span>
                 </a>
-                <a href="#skills" className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200">
+                <a
+                  href="#skills"
+                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
+                >
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>{t('skills')}</span>
                 </a>
-                <a href="#commands" className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200">
+                <a
+                  href="#commands"
+                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
+                >
                   <Terminal className="w-3.5 h-3.5" />
                   <span>{t('commands')}</span>
                 </a>
-                <a href="#memory" className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200">
+                <a
+                  href="#memory"
+                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
+                >
                   <Brain className="w-3.5 h-3.5" />
                   <span>{t('memory')}</span>
                 </a>
-                <a href="#mcp" className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200">
+                <a
+                  href="#mcp"
+                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
+                >
                   <Network className="w-3.5 h-3.5" />
                   <span>{t('mcp')}</span>
                 </a>
-                <a href="#plugins" className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200">
+                <a
+                  href="#plugins"
+                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
+                >
                   <Puzzle className="w-3.5 h-3.5" />
                   <span>{t('plugins')}</span>
                 </a>
@@ -427,8 +540,10 @@ export function App() {
           {/* Footer Status */}
           <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 text-[11px] text-zinc-500">
             <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">Claude Code ready</span>
+              <span className={`w-2 h-2 rounded-full ${serverHealth ? 'bg-emerald-500' : 'bg-zinc-400'}`}></span>
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                {serverHealth ? 'Server online' : 'Server offline'}
+              </span>
             </div>
             <div className="text-[10px] text-zinc-400">
               Server: {serverHealth ? `v${serverHealth.version} (online)` : 'connecting...'}
@@ -444,7 +559,9 @@ export function App() {
               <div className="flex items-center justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800">
                 <div>
                   <h1 className="text-xl font-bold tracking-tight">{t('sessions')}</h1>
-                  <p className="text-xs text-zinc-500 mt-0.5">Manage and coordinate multi-agent sessions on top of Claude Code</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Manage and coordinate multi-agent sessions on top of Claude Code
+                  </p>
                 </div>
                 <button
                   onClick={() => setIsCreatingSession(true)}
@@ -457,7 +574,10 @@ export function App() {
 
               {/* Create Session Dialog inline */}
               {isCreatingSession && (
-                <form onSubmit={handleCreateSession} className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-3">
+                <form
+                  onSubmit={handleCreateSession}
+                  className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-3"
+                >
                   <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Create New Session</h3>
                   <div className="flex gap-2">
                     <input
@@ -485,8 +605,18 @@ export function App() {
                 </form>
               )}
 
+              {authRequired && (
+                <div className="mb-4 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                  <span>
+                    Not signed in. Run <code className="font-mono">crewtree</code> (or open the login link printed by
+                    the dev server) to access your sessions.
+                  </span>
+                </div>
+              )}
+
               {/* Sessions Table / List */}
-              {sessions.length === 0 ? (
+              {authRequired ? null : sessions.length === 0 ? (
                 <div className="border border-dashed border-zinc-300 dark:border-zinc-800 rounded-xl p-10 text-center flex flex-col items-center justify-center bg-white/40 dark:bg-zinc-900/20">
                   <div className="w-12 h-12 rounded-full bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-3">
                     <Bot className="w-6 h-6" />
@@ -555,7 +685,7 @@ export function App() {
                 <span>•</span>
                 <span className="flex items-center gap-1">
                   <Coins className="w-3 h-3" />
-                  {usageStats.inputTokens + usageStats.outputTokens} tokens
+                  {(currentSession?.totalTokens ?? 0) + usageStats.inputTokens + usageStats.outputTokens} tokens
                 </span>
                 {throttledRetryMs !== null && (
                   <span className="flex items-center gap-1 text-orange-500 font-medium">
@@ -582,9 +712,7 @@ export function App() {
             <div className="flex-1 flex overflow-hidden">
               {/* Agent Tree Diagram Pane */}
               <div className="w-72 border-r border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 p-4 flex flex-col overflow-y-auto">
-                <div className="text-[11px] font-semibold tracking-wider text-zinc-400 uppercase mb-3">
-                  Agent Tree
-                </div>
+                <div className="text-[11px] font-semibold tracking-wider text-zinc-400 uppercase mb-3">Agent Tree</div>
                 <div className="space-y-3">
                   {agents.map((agent) => (
                     <div
@@ -598,7 +726,9 @@ export function App() {
                             {agent.alias || agent.agentName}
                           </span>
                         </div>
-                        <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${statusBadge(agent.status ?? 'idle')}`}>
+                        <span
+                          className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${statusBadge(agent.status ?? 'idle')}`}
+                        >
                           {statusIcon(agent.status ?? 'idle')}
                           {agent.status}
                         </span>
@@ -610,7 +740,7 @@ export function App() {
               </div>
 
               {/* Chat & Stream Pane */}
-              <div className="flex-1 flex flex-col bg-white dark:bg-zinc-950">
+              <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-zinc-950">
                 {/* Messages List */}
                 <div className="flex-1 p-4 overflow-y-auto space-y-4">
                   {messages.length === 0 ? (
@@ -635,9 +765,13 @@ export function App() {
                                 : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 rounded-bl-sm border border-zinc-200 dark:border-zinc-800'
                             }`}
                           >
+                            {m.content && <div className="whitespace-pre-wrap">{m.content}</div>}
+                            {m.isStreaming && (
+                              <span className="inline-block w-1.5 h-3.5 bg-indigo-500 rounded-sm ml-0.5 animate-pulse" />
+                            )}
                             {/* Tool chips if any */}
                             {m.toolCalls && m.toolCalls.length > 0 && (
-                              <div className="mb-2 space-y-1">
+                              <div className={`space-y-1 ${m.content ? 'mt-2' : ''}`}>
                                 {m.toolCalls.map((tc, idx) => (
                                   <details
                                     key={idx}
@@ -645,8 +779,8 @@ export function App() {
                                       tc.isError
                                         ? 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50'
                                         : tc.output !== undefined
-                                        ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/50'
-                                        : 'bg-black/5 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 border-black/5 dark:border-white/5'
+                                          ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/50'
+                                          : 'bg-black/5 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 border-black/5 dark:border-white/5'
                                     }`}
                                   >
                                     <summary className="cursor-pointer select-none flex items-center gap-1.5 list-none">
@@ -663,25 +797,30 @@ export function App() {
                                     <div className="mt-2 pt-1.5 border-t border-black/10 dark:border-white/10 space-y-1 text-[10px]">
                                       {tc.input && (
                                         <div>
-                                          <div className="text-[9px] uppercase tracking-wider opacity-60 font-sans font-semibold">Input:</div>
-                                          <pre className="overflow-x-auto whitespace-pre-wrap max-h-32">{JSON.stringify(tc.input, null, 2)}</pre>
+                                          <div className="text-[9px] uppercase tracking-wider opacity-60 font-sans font-semibold">
+                                            Input:
+                                          </div>
+                                          <pre className="overflow-x-auto whitespace-pre-wrap max-h-32">
+                                            {JSON.stringify(tc.input, null, 2)}
+                                          </pre>
                                         </div>
                                       )}
                                       {tc.output !== undefined && (
                                         <div className="mt-1 pt-1 border-t border-black/5 dark:border-white/5">
-                                          <div className="text-[9px] uppercase tracking-wider opacity-60 font-sans font-semibold">Output:</div>
-                                          <pre className="overflow-x-auto whitespace-pre-wrap max-h-32">{typeof tc.output === 'string' ? tc.output : JSON.stringify(tc.output, null, 2)}</pre>
+                                          <div className="text-[9px] uppercase tracking-wider opacity-60 font-sans font-semibold">
+                                            Output:
+                                          </div>
+                                          <pre className="overflow-x-auto whitespace-pre-wrap max-h-32">
+                                            {typeof tc.output === 'string'
+                                              ? tc.output
+                                              : JSON.stringify(tc.output, null, 2)}
+                                          </pre>
                                         </div>
                                       )}
                                     </div>
                                   </details>
                                 ))}
                               </div>
-                            )}
-
-                            <div className="whitespace-pre-wrap">{m.content}</div>
-                            {m.isStreaming && (
-                              <span className="inline-block w-1.5 h-3.5 bg-indigo-500 rounded-sm ml-0.5 animate-pulse" />
                             )}
                           </div>
                         )}
@@ -699,7 +838,9 @@ export function App() {
                   {throttledRetryMs !== null && (
                     <div className="flex items-center gap-2 text-xs text-orange-500 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-2">
                       <Clock className="w-3.5 h-3.5" />
-                      <span>Rate limited by Claude API — auto-retrying in {Math.ceil(throttledRetryMs / 1000)} seconds</span>
+                      <span>
+                        Rate limited by Claude API — auto-retrying in {Math.ceil(throttledRetryMs / 1000)} seconds
+                      </span>
                     </div>
                   )}
 
@@ -719,13 +860,22 @@ export function App() {
                     disabled={isStreaming || throttledRetryMs !== null}
                     className="flex-1 px-3 py-2 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                   />
-                  <button
-                    type="submit"
-                   disabled={!inputMessage.trim() || isStreaming || throttledRetryMs !== null}
-                    className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 transition shadow-sm"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
+                  {isStreaming || throttledRetryMs !== null ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="destructive"
+                      onClick={handleInterrupt}
+                      title="Interrupt"
+                      aria-label="Interrupt"
+                    >
+                      <Square />
+                    </Button>
+                  ) : (
+                    <Button type="submit" size="icon" disabled={!inputMessage.trim()} title="Send" aria-label="Send">
+                      <Send />
+                    </Button>
+                  )}
                 </form>
               </div>
 
@@ -733,7 +883,9 @@ export function App() {
               {showRawEventLog && (
                 <div className="w-80 border-l border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 p-3 flex flex-col overflow-hidden text-xs">
                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-200 dark:border-zinc-800">
-                    <span className="font-semibold text-[11px] uppercase tracking-wider text-zinc-400">Live Event Log</span>
+                    <span className="font-semibold text-[11px] uppercase tracking-wider text-zinc-400">
+                      Live Event Log
+                    </span>
                     <span className="text-[10px] text-zinc-500 font-mono">{rawEvents.length} events</span>
                   </div>
                   <div className="flex-1 overflow-y-auto space-y-2 font-mono text-[11px]">
@@ -741,7 +893,10 @@ export function App() {
                       <div className="text-zinc-400 text-center py-8 text-xs">No events captured yet</div>
                     ) : (
                       rawEvents.map((e, idx) => (
-                        <div key={idx} className="p-2 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs">
+                        <div
+                          key={idx}
+                          className="p-2 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs"
+                        >
                           <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
                             <span className="text-indigo-600 dark:text-indigo-400 font-semibold">{e.type}</span>
                             <span>{new Date(e.ts).toLocaleTimeString()}</span>
@@ -759,6 +914,14 @@ export function App() {
           </div>
         )}
       </div>
+      {saveError && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-3 text-xs bg-red-600 text-white rounded-lg px-3 py-2 shadow-lg">
+          <span>{t('settingsSaveFailed')}</span>
+          <button onClick={() => persistUi(saveError.ui)} className="font-semibold underline">
+            {t('retry')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { query, Query } from '@anthropic-ai/claude-agent-sdk';
+import { query, Query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { AgentDriver, DriverCapabilities, DriverOptions } from '../AgentDriver.js';
 import { RuntimeType } from '@crewtree/shared';
 
@@ -16,6 +16,10 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
     } else {
       this.queue.push(value);
     }
+  }
+
+  get pending(): number {
+    return this.queue.length;
   }
 
   close() {
@@ -48,6 +52,14 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
   }
 }
 
+function userMessage(content: string): SDKUserMessage {
+  return {
+    type: 'user',
+    message: { role: 'user', content },
+    parent_tool_use_id: null,
+  } as SDKUserMessage;
+}
+
 export class SdkDriver implements AgentDriver {
   readonly runtime: RuntimeType = 'claude';
   readonly capabilities: DriverCapabilities = {
@@ -62,11 +74,14 @@ export class SdkDriver implements AgentDriver {
   };
 
   private options?: DriverOptions;
-  private lastQueryOptions?: any;
-  private inputQueue = new AsyncQueue<any>();
+  private queryOptions?: Options;
+  private inputQueue = new AsyncQueue<SDKUserMessage>();
   private queryInstance?: Query;
+  private abortController = new AbortController();
   private isDisposed = false;
   private sdkSessionId?: string;
+  private receivedAnyMessage = false;
+  private lastSentContent?: string;
 
   public getSessionId(): string | undefined {
     return this.sdkSessionId;
@@ -74,113 +89,90 @@ export class SdkDriver implements AgentDriver {
 
   async init(options: DriverOptions): Promise<void> {
     this.options = options;
+    this.sdkSessionId = options.resumeSessionId;
 
-    const queryOptions: any = {
+    const queryOptions: Options = {
       cwd: options.cwd,
       systemPrompt: options.systemPrompt,
       model: options.model,
+      tools: options.tools,
       allowedTools: options.allowedTools,
       resume: options.resumeSessionId,
-      canUseTool: async (toolName: string, input: any) => {
-        if (options.canUseTool) {
-          const res = await options.canUseTool(toolName, input);
-          return res.allow ? { behavior: 'allow' } : { behavior: 'deny', message: res.reason || 'Denied by user' };
-        }
-        return { behavior: 'allow' };
+      includePartialMessages: true,
+      abortController: this.abortController,
+      canUseTool: async (toolName, input) => {
+        if (!options.canUseTool) return { behavior: 'allow', updatedInput: input };
+        const res = await options.canUseTool(toolName, input);
+        return res.allow
+          ? { behavior: 'allow', updatedInput: input }
+          : { behavior: 'deny', message: res.reason || 'Denied by user' };
       },
     };
 
-    if (options.mcpServers) {
-      queryOptions.mcpServers = options.mcpServers;
-    }
+    if (options.mcpServers) queryOptions.mcpServers = options.mcpServers;
 
-    if (options.configGroups) {
-      if (options.configGroups.claudemd === false) {
-        queryOptions.settingSources = [];
-      }
-      if (options.configGroups.skillsPlugins === false) {
-        queryOptions.skills = [];
-      }
-      if (options.configGroups.permissions === false) {
-        queryOptions.permissionMode = 'bypassPermissions';
-        queryOptions.allowDangerouslySkipPermissions = true;
-      }
-    }
+    const cfg = options.claudeConfig;
+    if (cfg?.settingSources) queryOptions.settingSources = cfg.settingSources;
+    if (cfg?.settings) queryOptions.settings = cfg.settings as Options['settings'];
+    if (cfg?.skills) queryOptions.skills = cfg.skills;
 
-    this.lastQueryOptions = queryOptions;
+    this.queryOptions = queryOptions;
+    this.startQuery(queryOptions);
+  }
 
-    try {
-      this.queryInstance = query({
-        prompt: this.inputQueue,
-        options: queryOptions,
-      });
+  private startQuery(queryOptions: Options) {
+    this.queryInstance = query({ prompt: this.inputQueue, options: queryOptions });
+    this.consumeStream().catch((err) => this.emitError(err));
+  }
 
-      // Start consuming the event stream in background
-      this.consumeStream().catch((err) => {
-        console.error(`[SdkDriver] Error in stream for agent ${options.sessionAgentId}:`, err);
-        options.onEvent?.({
-          type: 'agent.status',
-          payload: { status: 'error', error: err.message },
-        });
-      });
-    } catch (err: any) {
-      console.error('[SdkDriver] Failed to initialize query:', err);
-      throw err;
-    }
+  private emitError(err: any) {
+    if (this.isDisposed) return;
+    console.error(`[SdkDriver] Stream error for agent ${this.options?.sessionAgentId}:`, err);
+    this.options?.onEvent?.({ type: 'crewtree.error', error: err?.message ?? String(err) });
   }
 
   private async consumeStream(): Promise<void> {
-    if (!this.queryInstance) return;
+    const current = this.queryInstance;
+    if (!current) return;
 
     try {
-      for await (const message of this.queryInstance) {
+      for await (const message of current) {
         if (this.isDisposed) break;
-
-        // Extract SDK session ID if not yet captured
-        if (!this.sdkSessionId && (message as any).session_id) {
+        this.receivedAnyMessage = true;
+        if ((message as any).session_id) {
           this.sdkSessionId = (message as any).session_id;
         }
-
         this.options?.onEvent?.(message);
       }
+      if (!this.isDisposed && current === this.queryInstance) {
+        this.emitError(new Error('Claude Code process exited unexpectedly'));
+      }
     } catch (err: any) {
-      // If resuming an old/expired session failed, automatically fallback to a fresh session
+      if (this.isDisposed) return;
+
+      // Resuming an expired/missing session: start a clean session and replay the last message.
       if (
-        this.options?.resumeSessionId &&
-        err.message?.includes('No conversation found with session ID')
+        this.queryOptions?.resume &&
+        !this.receivedAnyMessage &&
+        /No conversation found with session ID/i.test(err?.message ?? '')
       ) {
-        console.warn(
-          `[SdkDriver] Resume session "${this.options.resumeSessionId}" not found. Restarting with clean session...`
-        );
-        this.options.resumeSessionId = undefined;
+        console.warn(`[SdkDriver] Resume session "${this.queryOptions.resume}" not found. Starting a clean session.`);
         this.sdkSessionId = undefined;
-
-        const freshOptions = { ...this.lastQueryOptions, resume: undefined };
-        this.queryInstance = query({
-          prompt: this.inputQueue,
-          options: freshOptions,
-        });
-
-        return this.consumeStream();
+        this.queryOptions = { ...this.queryOptions, resume: undefined };
+        if (this.lastSentContent !== undefined && this.inputQueue.pending === 0)
+          this.inputQueue.push(userMessage(this.lastSentContent));
+        this.startQuery(this.queryOptions);
+        return;
       }
 
-      console.error(`[SdkDriver] Error in stream for agent ${this.options?.sessionAgentId}:`, err);
-      this.options?.onEvent?.({
-        type: 'agent.status',
-        payload: { status: 'error', error: err.message },
-      });
+      throw err;
     }
   }
 
   async sendMessage(content: string): Promise<void> {
     if (this.isDisposed) return;
-    this.inputQueue.push({
-      type: 'user',
-      message: {
-        role: 'user',
-        content,
-      },
-    });
+    this.lastSentContent = content;
+    this.inputQueue.push(userMessage(content));
   }
 
   async interrupt(): Promise<void> {
@@ -190,10 +182,10 @@ export class SdkDriver implements AgentDriver {
   }
 
   async dispose(): Promise<void> {
+    if (this.isDisposed) return;
     this.isDisposed = true;
     this.inputQueue.close();
-    if (this.queryInstance) {
-      this.queryInstance.close();
-    }
+    this.queryInstance?.close();
+    this.abortController.abort();
   }
 }

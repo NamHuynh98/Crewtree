@@ -32,6 +32,10 @@ export function generateOneTimeToken(): string {
 }
 
 export function verifyAndConsumeOneTimeToken(token: string): boolean {
+  const now = Date.now();
+  for (const [t, r] of oneTimeTokens) {
+    if (now > r.expiresAt) oneTimeTokens.delete(t);
+  }
   const record = oneTimeTokens.get(token);
   if (!record) return false;
   oneTimeTokens.delete(token);
@@ -54,5 +58,7 @@ export function verifySessionCookie(cookieValue?: string): boolean {
   const [timestamp, signature] = parts;
   const secret = getSessionSecret();
   const expectedSignature = crypto.createHmac('sha256', secret).update(timestamp).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+  const actual = Buffer.from(signature);
+  const expected = Buffer.from(expectedSignature);
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }

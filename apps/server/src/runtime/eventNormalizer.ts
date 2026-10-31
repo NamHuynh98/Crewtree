@@ -6,125 +6,103 @@ export interface NormalizerContext {
   sessionAgentId: string;
 }
 
+/**
+ * Turns Claude Code SDK / CLI stream-json messages into AgentEvents.
+ *
+ * - `stream_event` text deltas → `agent.text.delta` (live typing; never persisted)
+ * - `assistant` messages carry one completed content block each → `agent.text.done` / `agent.tool.start`
+ * - `user` tool results → `agent.tool.end`
+ * - `result` (end of turn) → `usage.updated` with the turn's final usage
+ *
+ * Status changes (running/idle/throttled/error) are owned by AgentRuntime, not emitted here.
+ */
 export class EventNormalizer {
-  private accumulatedText = '';
-
   constructor(private ctx: NormalizerContext) {}
 
-  public normalize(rawMessage: any): AgentEvent[] {
+  private event(type: AgentEvent['type'], payload: Record<string, any>): AgentEvent {
+    return {
+      sessionId: this.ctx.sessionId,
+      sessionAgentId: this.ctx.sessionAgentId,
+      type,
+      payload,
+      ts: Date.now(),
+    };
+  }
+
+  public normalize(raw: any): AgentEvent[] {
+    if (!raw || typeof raw !== 'object') return [];
     const events: AgentEvent[] = [];
-    const now = Date.now();
+    const parentToolUseId = raw.parent_tool_use_id ?? null;
 
-    if (!rawMessage || typeof rawMessage !== 'object') {
-      return events;
-    }
+    switch (raw.type) {
+      case 'stream_event': {
+        const e = raw.event;
+        if (e?.type === 'content_block_delta' && e.delta?.type === 'text_delta' && e.delta.text) {
+          events.push(this.event('agent.text.delta', { text: e.delta.text, parentToolUseId }));
+        }
+        break;
+      }
 
-    // Assistant messages (contain text blocks, tool_use blocks, usage)
-    if (rawMessage.type === 'assistant' && rawMessage.message) {
-      const content = rawMessage.message.content;
-      if (Array.isArray(content)) {
+      case 'assistant': {
+        const content = raw.message?.content;
+        if (!Array.isArray(content)) break;
         for (const block of content) {
           if (block.type === 'text' && block.text) {
-            this.accumulatedText += block.text;
-            events.push({
-              sessionId: this.ctx.sessionId,
-              sessionAgentId: this.ctx.sessionAgentId,
-              type: 'agent.text.delta',
-              payload: { text: block.text },
-              ts: now,
-            });
+            events.push(this.event('agent.text.done', { text: block.text, parentToolUseId }));
           } else if (block.type === 'tool_use') {
-            events.push({
-              sessionId: this.ctx.sessionId,
-              sessionAgentId: this.ctx.sessionAgentId,
-              type: 'agent.tool.start',
-              payload: {
+            events.push(
+              this.event('agent.tool.start', {
                 tool: block.name,
                 toolUseId: block.id,
                 input: block.input,
-              },
-              ts: now,
-            });
+                parentToolUseId,
+              })
+            );
           }
         }
+        break;
       }
 
-      // Usage update
-      if (rawMessage.message.usage) {
-        const u = rawMessage.message.usage;
-        events.push({
-          sessionId: this.ctx.sessionId,
-          sessionAgentId: this.ctx.sessionAgentId,
-          type: 'usage.updated',
-          payload: {
+      case 'user': {
+        const content = raw.message?.content;
+        if (!Array.isArray(content)) break;
+        for (const block of content) {
+          if (block.type === 'tool_result') {
+            events.push(
+              this.event('agent.tool.end', {
+                toolUseId: block.tool_use_id,
+                output: block.content,
+                isError: block.is_error || false,
+                parentToolUseId,
+              })
+            );
+          }
+        }
+        break;
+      }
+
+      case 'result': {
+        const u = raw.usage ?? {};
+        events.push(
+          this.event('usage.updated', {
             inputTokens: u.input_tokens || 0,
             outputTokens: u.output_tokens || 0,
             cacheReadTokens: u.cache_read_input_tokens || 0,
             cacheCreationTokens: u.cache_creation_input_tokens || 0,
-          },
-          ts: now,
-        });
+            numTurns: raw.num_turns || 0,
+            isError: raw.is_error || false,
+            subtype: raw.subtype,
+          })
+        );
+        break;
       }
-    }
-
-    // User message containing tool results
-    if (rawMessage.type === 'user' && rawMessage.message?.content) {
-      const content = rawMessage.message.content;
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'tool_result') {
-            events.push({
-              sessionId: this.ctx.sessionId,
-              sessionAgentId: this.ctx.sessionAgentId,
-              type: 'agent.tool.end',
-              payload: {
-                toolUseId: block.tool_use_id,
-                output: block.content,
-                isError: block.is_error || false,
-              },
-              ts: now,
-            });
-          }
-        }
-      }
-    }
-
-    // Rate limit events from the SDK
-    if (rawMessage.type === 'rate_limit_event') {
-      const retryAfterMs = (rawMessage.retry_after_seconds || 60) * 1000;
-      events.push({
-        sessionId: this.ctx.sessionId,
-        sessionAgentId: this.ctx.sessionAgentId,
-        type: 'agent.status',
-        payload: { status: 'throttled', retryAfterMs },
-        ts: now,
-      });
-    }
-
-    // System message: contains session_id
-    if (rawMessage.type === 'system' && rawMessage.session_id) {
-      events.push({
-        sessionId: this.ctx.sessionId,
-        sessionAgentId: this.ctx.sessionAgentId,
-        type: 'agent.status',
-        payload: { status: 'running', sdkSessionId: rawMessage.session_id },
-        ts: now,
-      });
     }
 
     return events;
   }
+}
 
-  public flushTextDone(): AgentEvent | null {
-    if (!this.accumulatedText) return null;
-    const finalEvent: AgentEvent = {
-      sessionId: this.ctx.sessionId,
-      sessionAgentId: this.ctx.sessionAgentId,
-      type: 'agent.text.done',
-      payload: { text: this.accumulatedText },
-      ts: Date.now(),
-    };
-    this.accumulatedText = '';
-    return finalEvent;
-  }
+/** Tokens counted against limits: input + output, never cache reads (PLAN.md 3.3). */
+export function countedTokens(usage: { inputTokens: number; outputTokens: number }): number {
+  return usage.inputTokens + usage.outputTokens;
 }

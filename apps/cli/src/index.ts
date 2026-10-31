@@ -20,7 +20,7 @@ program
   .action(async (targetPath) => {
     const cwd = targetPath ? path.resolve(targetPath) : process.cwd();
     console.log(`🌲 Launching Crewtree for project: ${cwd}`);
-    
+
     // Check if server is running
     try {
       const res = await fetch('http://127.0.0.1:4317/api/health');
@@ -42,7 +42,9 @@ program
       const res = await fetch('http://127.0.0.1:4317/api/health');
       if (res.ok) {
         const data = await res.json();
-        console.log(`✅ Crewtree Server is running (PID: ${data.pid}, Uptime: ${Math.round(data.uptime)}s, Version: ${data.version})`);
+        console.log(
+          `✅ Crewtree Server is running (PID: ${data.pid}, Uptime: ${Math.round(data.uptime)}s, Version: ${data.version})`
+        );
       } else {
         console.log('❌ Server returned non-200 response.');
       }

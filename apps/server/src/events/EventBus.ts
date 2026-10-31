@@ -11,6 +11,13 @@ export interface WsSocket {
   on(event: string, listener: (...args: any[]) => void): void;
 }
 
+/** Events also sent to clients without a session (header, sidebar) — PLAN.md 15.2. */
+const GLOBAL_EVENT_PREFIXES = ['approval.', 'resource.changed', 'session.status'];
+
+export function isGlobalEvent(type: string): boolean {
+  return GLOBAL_EVENT_PREFIXES.some((prefix) => type.startsWith(prefix));
+}
+
 interface DeltaBuffer {
   text: string;
   sessionId: string;
@@ -39,9 +46,9 @@ export class EventBus extends EventEmitter {
   public registerClient(ws: WsSocket, sessionId?: string) {
     const client = { ws, sessionId };
     this.wsClients.add(client);
-    ws.on('close', () => {
-      this.wsClients.delete(client);
-    });
+    const remove = () => this.wsClients.delete(client);
+    ws.on('close', remove);
+    ws.on('error', remove);
   }
 
   public updateClientSession(ws: WsSocket, sessionId: string) {
@@ -57,8 +64,8 @@ export class EventBus extends EventEmitter {
     const db = getDb();
     let savedEventId: number | undefined;
 
-    // Flush pending deltas before persisted events so ordering is correct
-    if (event.type === 'agent.text.done' || event.type === 'agent.status' || event.type === 'agent.tool.start') {
+    // Flush pending deltas before any other event so clients see them in order
+    if (event.type !== 'agent.text.delta') {
       this.flushDeltas();
     }
 
@@ -90,13 +97,16 @@ export class EventBus extends EventEmitter {
 
     // Persist to SQLite (except high-frequency text deltas — already returned above)
     try {
-      const result = db.insert(eventsTable).values({
-        sessionId: event.sessionId,
-        sessionAgentId: event.sessionAgentId ?? null,
-        type: event.type,
-        payload: JSON.stringify(event.payload),
-        ts: event.ts || Date.now(),
-      }).run();
+      const result = db
+        .insert(eventsTable)
+        .values({
+          sessionId: event.sessionId,
+          sessionAgentId: event.sessionAgentId ?? null,
+          type: event.type,
+          payload: JSON.stringify(event.payload),
+          ts: event.ts || Date.now(),
+        })
+        .run();
       savedEventId = Number(result.lastInsertRowid);
     } catch (err) {
       console.error('Failed to persist event to SQLite:', err);
@@ -143,8 +153,8 @@ export class EventBus extends EventEmitter {
     for (const client of this.wsClients) {
       // 1 = WebSocket.OPEN (using literal to avoid browser WebSocket global dependency)
       if (client.ws.readyState === 1) {
-        // Global events or matching session events
-        if (!client.sessionId || client.sessionId === event.sessionId || !event.sessionId) {
+        // Session clients get their session's events; every client gets global events
+        if (client.sessionId === event.sessionId || isGlobalEvent(event.type)) {
           try {
             client.ws.send(payloadStr);
           } catch (e) {
@@ -155,14 +165,20 @@ export class EventBus extends EventEmitter {
     }
   }
 
-  public getEventsAfter(sessionId: string, lastEventId: number): AgentEvent[] {
+  public getEventsAfter(
+    sessionId: string,
+    lastEventId: number,
+    opts: { sessionAgentId?: string; limit?: number } = {}
+  ): AgentEvent[] {
     const db = getDb();
-    const rows = db
+    const conditions = [eq(eventsTable.sessionId, sessionId), gt(eventsTable.id, lastEventId)];
+    if (opts.sessionAgentId) conditions.push(eq(eventsTable.sessionAgentId, opts.sessionAgentId));
+    const query = db
       .select()
       .from(eventsTable)
-      .where(and(eq(eventsTable.sessionId, sessionId), gt(eventsTable.id, lastEventId)))
-      .orderBy(asc(eventsTable.id))
-      .all();
+      .where(and(...conditions))
+      .orderBy(asc(eventsTable.id));
+    const rows = opts.limit ? query.limit(opts.limit).all() : query.all();
 
     return rows.map((r) => ({
       id: r.id,
