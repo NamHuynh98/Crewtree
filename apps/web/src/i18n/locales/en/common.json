@@ -6,10 +6,86 @@
   "skills": "Skills",
   "commands": "Commands",
   "memory": "Memory",
-  "mcp": "MCP Servers",
+  "mcp": "MCP",
   "plugins": "Plugins",
   "settings": "Settings",
-  "approvals": "pending approvals",
+  "nav": {
+    "workspace": "Workspace",
+    "claudeConfig": "Claude Config"
+  },
+  "header": {
+    "pending": "{{count}} pending",
+    "pendingTitle": "Pending approvals",
+    "theme": "Theme",
+    "language": "Language",
+    "openSettings": "Settings"
+  },
+  "theme": {
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "languages": {
+    "en": "English",
+    "vi": "Tiếng Việt"
+  },
+  "claude": {
+    "label": "Claude Code",
+    "loggedIn": "logged in",
+    "notLoggedIn": "not logged in",
+    "rateLimited": "rate limited",
+    "checking": "checking…",
+    "unknown": "status unknown",
+    "serverOffline": "Server offline",
+    "loginHint": "Run `claude login` in a terminal"
+  },
+  "auth": {
+    "notSignedIn": "Not signed in. Run crewtree (or open the login link printed by the dev server) to access your sessions."
+  },
+  "sessionsPage": {
+    "subtitle": "Manage and coordinate multi-agent sessions on top of Claude Code",
+    "emptyTitle": "No sessions yet",
+    "emptyBody": "Create a session, pick a few agents and give the Supervisor a goal.",
+    "newTitle": "New session",
+    "titlePlaceholder": "Session name (e.g. Login feature)"
+  },
+  "sessionStatus": {
+    "active": "Active",
+    "paused": "Paused",
+    "completed": "Done",
+    "stopped": "Stopped",
+    "error": "Error"
+  },
+  "workspace": {
+    "back": "Back to sessions",
+    "agentCount_one": "{{count}} agent",
+    "agentCount_other": "{{count}} agents",
+    "tokens": "{{count}} tok",
+    "eventLog": "Event log",
+    "agentTree": "Agent tree",
+    "rateLimited": "Rate limited · retry in {{seconds}}s",
+    "suspendedHint": "Suspended · resumes on next task",
+    "emptyChatTitle": "Give the Supervisor a goal.",
+    "emptyChatBody": "It will plan the work and report back here."
+  },
+  "chat": {
+    "placeholder": "Message {{name}}…",
+    "thinking": "{{name}} is working…",
+    "send": "Send",
+    "interrupt": "Interrupt",
+    "turnEnded": "Turn interrupted or failed.",
+    "agentError": "Agent error: {{error}}",
+    "unknownError": "Unknown error",
+    "toolDetails": "details",
+    "toolInput": "Input",
+    "toolOutput": "Output"
+  },
+  "eventLog": {
+    "title": "Live event log",
+    "count_one": "{{count}} event",
+    "count_other": "{{count}} events",
+    "empty": "No events yet"
+  },
   "status": {
     "idle": "Idle",
     "running": "Running",
@@ -17,10 +93,17 @@
     "waitingChildren": "Waiting for children",
     "waitingInput": "Waiting for approval",
     "needsInput": "Needs your input",
-    "throttled": "Throttled",
+    "throttled": "Rate limited",
     "suspended": "Suspended",
     "error": "Error",
     "done": "Done"
+  },
+  "scope": {
+    "crewtree": "Crewtree",
+    "user": "User",
+    "project": "Project",
+    "plugin": "Plugin",
+    "builtin": "Built-in"
   },
   "actions": {
     "newSession": "New session",
@@ -28,6 +111,7 @@
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
+    "create": "Create",
     "allowOnce": "Allow once",
     "alwaysAllow": "Always allow",
     "deny": "Deny"

@@ -7,6 +7,9 @@ import { fileURLToPath } from 'url';
 const localesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../apps/web/src/i18n/locales');
 const languages = ['en', 'vi'];
 
+// Plural forms differ per language (English: _one/_other, Vietnamese: _other only): compare base keys
+const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
+
 function flatten(obj, prefix = '') {
   return Object.entries(obj).flatMap(([k, v]) =>
     v && typeof v === 'object' ? flatten(v, `${prefix}${k}.`) : [`${prefix}${k}`]
@@ -26,7 +29,7 @@ for (const ns of namespaces) {
       keys[lang] = new Set();
       continue;
     }
-    keys[lang] = new Set(flatten(JSON.parse(fs.readFileSync(file, 'utf8'))));
+    keys[lang] = new Set(flatten(JSON.parse(fs.readFileSync(file, 'utf8'))).map((k) => k.replace(PLURAL_SUFFIX, '')));
   }
   for (const lang of languages) {
     for (const other of languages.filter((l) => l !== lang)) {

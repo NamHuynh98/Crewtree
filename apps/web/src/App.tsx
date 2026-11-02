@@ -10,36 +10,53 @@ import {
   Puzzle,
   Settings,
   ShieldAlert,
-  Sun,
-  Moon,
   Plus,
   Play,
   ArrowLeft,
   Send,
   Loader2,
   Wrench,
-  PauseCircle,
-  Clock,
   Coins,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   Code2,
   Square,
 } from 'lucide-react';
 import { Session, SessionAgent, AgentEvent } from '@crewtree/shared';
-import { getBoot, resolveTheme, saveUiSettings, BootSettings } from './lib/boot';
+import { getBoot, resolveTheme, saveUiSettings, BootSettings, ThemeSetting, LanguageSetting } from './lib/boot';
+import { StatusBadge, StatusDot, agentStatusKey, agentVisual, sessionVisual } from '@/components/StatusBadge';
+import { Markdown } from '@/components/Markdown';
+import { ThemeMenu, LanguageMenu } from '@/components/HeaderMenus';
+import { ClaudeStatus, ClaudeStatusInfo } from '@/components/ClaudeStatus';
 import { Button } from '@/components/ui/button';
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /** System notices are translated at render time */
+  i18nKey?: string;
+  i18nArgs?: Record<string, string>;
   toolCalls?: Array<{ tool: string; toolUseId: string; input: any; output?: any; isError?: boolean }>;
   isStreaming?: boolean;
   /** Optimistic user message not yet confirmed by message.created */
   pending?: boolean;
 }
+
+type SessionListItem = Session & { activity?: 'running' | 'idle' };
+
+interface ProjectInfo {
+  path: string;
+  name: string;
+  homeDir: string;
+}
+
+/** ~/WorkSpace/app instead of /Users/me/WorkSpace/app */
+function shortenPath(p: string, homeDir?: string): string {
+  return homeDir && (p === homeDir || p.startsWith(homeDir + '/')) ? '~' + p.slice(homeDir.length) : p;
+}
+
+const BUSY_STATUSES = ['running', 'waiting_input', 'waiting_children'];
 
 interface UsageStats {
   inputTokens: number;
@@ -52,50 +69,19 @@ interface UsageStats {
 let keySeq = 0;
 const nextKey = (prefix = 'msg') => `${prefix}-${++keySeq}`;
 
-// Helper: map agent status to color classes
-function statusBadge(status: string) {
-  switch (status) {
-    case 'running':
-      return 'bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800';
-    case 'waiting_input':
-      return 'bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800';
-    case 'throttled':
-      return 'bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800';
-    case 'suspended':
-      return 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700';
-    case 'error':
-      return 'bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800';
-    default:
-      return 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
-  }
-}
-
-function statusIcon(status: string) {
-  switch (status) {
-    case 'running':
-      return <Loader2 className="w-3 h-3 animate-spin" />;
-    case 'waiting_input':
-      return <AlertTriangle className="w-3 h-3" />;
-    case 'throttled':
-      return <Clock className="w-3 h-3" />;
-    case 'suspended':
-      return <PauseCircle className="w-3 h-3" />;
-    case 'error':
-      return <XCircle className="w-3 h-3" />;
-    default:
-      return <CheckCircle2 className="w-3 h-3" />;
-  }
-}
-
 export function App() {
   const { t, i18n } = useTranslation();
+  const [themeSetting, setThemeSetting] = useState<ThemeSetting>(() => getBoot().theme);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => resolveTheme(getBoot().theme));
   // Failed settings save: the UI keeps the new value and offers a retry (PLAN.md 11.1)
   const [saveError, setSaveError] = useState<{ ui: Partial<BootSettings> } | null>(null);
-  const [serverHealth, setServerHealth] = useState<{ status: string; version: string } | null>(null);
+  const [serverOnline, setServerOnline] = useState(true);
+  const [claudeStatus, setClaudeStatus] = useState<ClaudeStatusInfo | null>(null);
+  const [project, setProject] = useState<ProjectInfo | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
 
   // Sessions & Selection
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [agents, setAgents] = useState<SessionAgent[]>([]);
@@ -132,124 +118,158 @@ export function App() {
       .catch((err) => console.error('Failed to load sessions', err));
   };
 
-  useEffect(() => {
-    fetch('/api/health')
-      .then((res) => res.json())
-      .then((data) => setServerHealth(data))
-      .catch((err) => console.error('Server health check failed', err));
-
-    loadSessions();
+  const loadPendingApprovals = useCallback(() => {
+    fetch('/api/approvals?status=pending')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows) => setPendingApprovals(Array.isArray(rows) ? rows.length : 0))
+      .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    loadSessions();
+    loadPendingApprovals();
+    fetch('/api/projects')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data && setProject(data.current))
+      .catch(() => undefined);
+
+    // Claude Code login / rate-limit state for the sidebar footer
+    const loadClaudeStatus = () =>
+      fetch('/api/claude/status')
+        .then((res) => {
+          setServerOnline(true);
+          return res.ok ? res.json() : null;
+        })
+        .then((data) => data && setClaudeStatus(data))
+        .catch(() => setServerOnline(false));
+    loadClaudeStatus();
+    const timer = setInterval(loadClaudeStatus, 60_000);
+    return () => clearInterval(timer);
+  }, [loadPendingApprovals]);
 
   // Handle incoming live AgentEvents
   // `history`: replaying persisted events — status and usage are already reflected in the loaded session
-  const handleAgentEvent = useCallback((event: AgentEvent, opts: { history?: boolean } = {}) => {
-    if (opts.history && event.type === 'agent.status') return;
+  const handleAgentEvent = useCallback(
+    (event: AgentEvent, opts: { history?: boolean } = {}) => {
+      if (opts.history && event.type === 'agent.status') return;
 
-    if (event.type === 'message.created' && event.payload?.role === 'user') {
-      const text = event.payload.text ?? '';
-      setMessages((prev) => {
-        const pendingIdx = prev.findIndex((m) => m.pending && m.role === 'user' && m.content === text);
-        if (pendingIdx >= 0) {
-          return prev.map((m, i) => (i === pendingIdx ? { ...m, pending: false } : m));
-        }
-        return [...prev, { id: event.payload.messageId ?? nextKey('user'), role: 'user', content: text }];
-      });
-      return;
-    }
+      if (event.type === 'message.created' && event.payload?.role === 'user') {
+        const text = event.payload.text ?? '';
+        setMessages((prev) => {
+          const pendingIdx = prev.findIndex((m) => m.pending && m.role === 'user' && m.content === text);
+          if (pendingIdx >= 0) {
+            return prev.map((m, i) => (i === pendingIdx ? { ...m, pending: false } : m));
+          }
+          return [...prev, { id: event.payload.messageId ?? nextKey('user'), role: 'user', content: text }];
+        });
+        return;
+      }
 
-    if (event.type === 'usage.updated' && event.payload?.isError) {
-      setMessages((prev) => [
-        ...prev,
-        { id: nextKey('ended'), role: 'system', content: 'Turn interrupted or failed.' },
-      ]);
-    }
+      if (event.type.startsWith('approval.')) {
+        loadPendingApprovals();
+        return;
+      }
 
-    if (event.type === 'agent.status') {
-      const status = event.payload?.status;
-      setAgents((prev) => prev.map((a) => (a.id === event.sessionAgentId ? { ...a, status } : a)));
-      if (status === 'running') {
-        setIsStreaming(true);
-        setThrottledRetryMs(null);
-      }
-      if (status === 'idle' || status === 'suspended') {
-        setIsStreaming(false);
-        setThrottledRetryMs(null);
-      }
-      if (status === 'throttled') {
-        setIsStreaming(false);
-        setThrottledRetryMs(event.payload?.retryAfterMs ?? 60000);
-      }
-      if (status === 'error') {
-        setIsStreaming(false);
+      if (event.type === 'usage.updated' && event.payload?.isError) {
         setMessages((prev) => [
           ...prev,
-          { id: nextKey(), role: 'system', content: `⚠️ Agent error: ${event.payload?.error || 'Unknown error'}` },
+          { id: nextKey('ended'), role: 'system', content: '', i18nKey: 'chat.turnEnded' },
         ]);
       }
-    }
 
-    // Output of Claude Code's own subagents (Task tool) is not part of this agent's chat
-    if (event.payload?.parentToolUseId) return;
-
-    if (event.type === 'agent.text.delta') {
-      const deltaText = event.payload?.text || '';
-      setMessages((prev) => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + deltaText }];
-        } else {
-          return [...prev, { id: nextKey(), role: 'assistant', content: deltaText, isStreaming: true }];
+      if (event.type === 'agent.status') {
+        const status = event.payload?.status;
+        setAgents((prev) => prev.map((a) => (a.id === event.sessionAgentId ? { ...a, status } : a)));
+        if (status === 'running') {
+          setIsStreaming(true);
+          setThrottledRetryMs(null);
         }
-      });
-    }
-
-    if (event.type === 'agent.text.done') {
-      // A text block is complete: finalize the streaming message, or add it if no deltas arrived
-      setMessages((prev) => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          return [
-            ...prev.slice(0, -1),
-            { ...lastMsg, isStreaming: false, content: event.payload?.text || lastMsg.content },
-          ];
+        if (status === 'idle' || status === 'suspended') {
+          setIsStreaming(false);
+          setThrottledRetryMs(null);
         }
-        return [...prev, { id: nextKey('done'), role: 'assistant', content: event.payload?.text || '' }];
-      });
-    }
-
-    if (event.type === 'agent.tool.start') {
-      const { tool, toolUseId, input } = event.payload;
-      setMessages((prev) => {
-        const lastMsg = prev[prev.length - 1];
-        const newTool = { tool, toolUseId, input };
-        if (lastMsg && lastMsg.role === 'assistant') {
-          return [...prev.slice(0, -1), { ...lastMsg, toolCalls: [...(lastMsg.toolCalls || []), newTool] }];
-        } else {
-          return [...prev, { id: nextKey(), role: 'assistant', content: '', toolCalls: [newTool] }];
+        if (status === 'throttled') {
+          setIsStreaming(false);
+          setThrottledRetryMs(event.payload?.retryAfterMs ?? 60000);
         }
-      });
-    }
+        if (status === 'error') {
+          setIsStreaming(false);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: nextKey(),
+              role: 'system',
+              content: event.payload?.error ?? '',
+              i18nKey: 'chat.agentError',
+              i18nArgs: { error: event.payload?.error ?? '' },
+            },
+          ]);
+        }
+      }
 
-    if (event.type === 'agent.tool.end') {
-      const { toolUseId, output, isError } = event.payload;
-      setMessages((prev) =>
-        prev.map((m) => ({
-          ...m,
-          toolCalls: m.toolCalls?.map((tc) => (tc.toolUseId === toolUseId ? { ...tc, output, isError } : tc)),
-        }))
-      );
-    }
+      // Output of Claude Code's own subagents (Task tool) is not part of this agent's chat
+      if (event.payload?.parentToolUseId) return;
 
-    if (event.type === 'usage.updated' && !opts.history) {
-      setUsageStats((prev) => ({
-        inputTokens: prev.inputTokens + (event.payload?.inputTokens || 0),
-        outputTokens: prev.outputTokens + (event.payload?.outputTokens || 0),
-        cacheReadTokens: prev.cacheReadTokens + (event.payload?.cacheReadTokens || 0),
-        cacheCreationTokens: prev.cacheCreationTokens + (event.payload?.cacheCreationTokens || 0),
-      }));
-    }
-  }, []);
+      if (event.type === 'agent.text.delta') {
+        const deltaText = event.payload?.text || '';
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+            return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + deltaText }];
+          } else {
+            return [...prev, { id: nextKey(), role: 'assistant', content: deltaText, isStreaming: true }];
+          }
+        });
+      }
+
+      if (event.type === 'agent.text.done') {
+        // A text block is complete: finalize the streaming message, or add it if no deltas arrived
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+            return [
+              ...prev.slice(0, -1),
+              { ...lastMsg, isStreaming: false, content: event.payload?.text || lastMsg.content },
+            ];
+          }
+          return [...prev, { id: nextKey('done'), role: 'assistant', content: event.payload?.text || '' }];
+        });
+      }
+
+      if (event.type === 'agent.tool.start') {
+        const { tool, toolUseId, input } = event.payload;
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          const newTool = { tool, toolUseId, input };
+          if (lastMsg && lastMsg.role === 'assistant') {
+            return [...prev.slice(0, -1), { ...lastMsg, toolCalls: [...(lastMsg.toolCalls || []), newTool] }];
+          } else {
+            return [...prev, { id: nextKey(), role: 'assistant', content: '', toolCalls: [newTool] }];
+          }
+        });
+      }
+
+      if (event.type === 'agent.tool.end') {
+        const { toolUseId, output, isError } = event.payload;
+        setMessages((prev) =>
+          prev.map((m) => ({
+            ...m,
+            toolCalls: m.toolCalls?.map((tc) => (tc.toolUseId === toolUseId ? { ...tc, output, isError } : tc)),
+          }))
+        );
+      }
+
+      if (event.type === 'usage.updated' && !opts.history) {
+        setUsageStats((prev) => ({
+          inputTokens: prev.inputTokens + (event.payload?.inputTokens || 0),
+          outputTokens: prev.outputTokens + (event.payload?.outputTokens || 0),
+          cacheReadTokens: prev.cacheReadTokens + (event.payload?.cacheReadTokens || 0),
+          cacheCreationTokens: prev.cacheCreationTokens + (event.payload?.cacheCreationTokens || 0),
+        }));
+      }
+    },
+    [loadPendingApprovals]
+  );
 
   // When a session is selected, load its details & connect WS
   useEffect(() => {
@@ -340,6 +360,16 @@ export function App() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
+  // "System" follows the OS setting live
+  useEffect(() => {
+    setTheme(resolveTheme(themeSetting));
+    if (themeSetting !== 'system') return;
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    const onChange = () => setTheme(resolveTheme('system'));
+    media?.addEventListener('change', onChange);
+    return () => media?.removeEventListener('change', onChange);
+  }, [themeSetting]);
+
   const persistUi = (ui: Partial<BootSettings>) => {
     saveUiSettings(ui)
       .then(() => setSaveError(null))
@@ -349,17 +379,15 @@ export function App() {
       });
   };
 
-  const toggleLanguage = () => {
-    const nextLang = i18n.language === 'en' ? 'vi' : 'en';
-    i18n.changeLanguage(nextLang);
-    document.documentElement.lang = nextLang;
-    persistUi({ language: nextLang });
+  const changeLanguage = (language: LanguageSetting) => {
+    i18n.changeLanguage(language);
+    document.documentElement.lang = language;
+    persistUi({ language });
   };
 
-  const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    persistUi({ theme: nextTheme });
+  const changeTheme = (next: ThemeSetting) => {
+    setThemeSetting(next);
+    persistUi({ theme: next });
   };
 
   const handleCreateSession = async (e: React.FormEvent) => {
@@ -414,122 +442,108 @@ export function App() {
     }
   };
 
+  const supervisor = agents.find((a) => a.id === currentSession?.supervisorAgentId);
+  const supervisorName = supervisor?.alias || supervisor?.agentName || 'Supervisor';
+  const workspaceBusy = agents.some((a) => BUSY_STATUSES.includes(a.status ?? 'idle'));
+  const navItemClass =
+    'flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition';
+
   return (
-    <div
-      className={`h-screen overflow-hidden flex flex-col ${theme === 'dark' ? 'dark bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}`}
-    >
+    <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">
       {/* Top Header */}
-      <header className="h-12 border-b border-zinc-200 dark:border-zinc-800 px-4 flex items-center justify-between bg-white dark:bg-zinc-900 select-none">
+      <header className="h-12 border-b border-border px-4 flex items-center justify-between bg-card select-none">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 font-bold tracking-tight text-indigo-600 dark:text-indigo-400">
-            <span className="text-xl">◆</span>
-            <span className="text-base font-semibold text-zinc-900 dark:text-white">Crewtree</span>
+          <div className="flex items-center gap-2 font-semibold tracking-tight">
+            <span className="text-xl text-primary">◆</span>
+            <span className="text-base">{t('appName')}</span>
           </div>
-          <div className="h-4 w-[1px] bg-zinc-300 dark:bg-zinc-700" />
-          <div className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 rounded-md border border-zinc-200 dark:border-zinc-700">
+          <div className="h-4 w-px bg-border" />
+          <div
+            className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-md border border-border"
+            title={project?.path}
+          >
             <span>{t('project')}:</span>
-            <span className="font-medium text-zinc-900 dark:text-zinc-200">Tool-AI</span>
+            <span className="font-medium text-foreground font-mono">
+              {project ? shortenPath(project.path, project.homeDir) : '…'}
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-sm">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-            <ShieldAlert className="w-3.5 h-3.5" />
-            <span>0 {t('approvals')}</span>
+        <div className="flex items-center gap-2 text-sm">
+          <div
+            className={`flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md border ${
+              pendingApprovals > 0
+                ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800'
+                : 'text-muted-foreground border-border'
+            }`}
+            title={t('header.pendingTitle')}
+          >
+            <span aria-hidden>⚑</span>
+            <span>{t('header.pending', { count: pendingApprovals })}</span>
           </div>
-
-          <button
-            onClick={toggleTheme}
-            className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
-            title="Toggle Theme"
-          >
-            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-
-          <button
-            onClick={toggleLanguage}
-            className="px-2 py-1 text-xs font-semibold rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700"
-          >
-            {i18n.language.toUpperCase()}
-          </button>
-
-          <button
-            className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
-            title="Settings"
+          <ThemeMenu value={themeSetting} onChange={changeTheme} />
+          <LanguageMenu value={(i18n.language as LanguageSetting) ?? 'en'} onChange={changeLanguage} />
+          <a
+            href="#settings"
+            className="p-1.5 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            title={t('header.openSettings')}
+            aria-label={t('header.openSettings')}
           >
             <Settings className="w-4 h-4" />
-          </button>
+          </a>
         </div>
       </header>
 
       {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar */}
-        <aside className="w-56 border-r border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/50 flex flex-col justify-between p-3 select-none">
+        <aside className="w-56 border-r border-border bg-card/50 flex flex-col justify-between p-3 select-none">
           <div className="space-y-4">
             <div>
-              <div className="text-[10px] font-semibold tracking-wider text-zinc-400 uppercase px-2 mb-1.5">
-                Workspace
+              <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 mb-1.5">
+                {t('nav.workspace')}
               </div>
               <nav className="space-y-0.5 text-xs font-medium">
                 <button
                   onClick={() => setSelectedSessionId(null)}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-left transition ${
                     selectedSessionId === null
-                      ? 'bg-zinc-200/70 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                   }`}
                 >
-                  <Play className="w-3.5 h-3.5 text-indigo-500" />
+                  <Play className="w-3.5 h-3.5 text-primary" />
                   <span>{t('sessions')}</span>
                 </button>
               </nav>
             </div>
 
             <div>
-              <div className="text-[10px] font-semibold tracking-wider text-zinc-400 uppercase px-2 mb-1.5">
-                Claude Config
+              <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 mb-1.5">
+                {t('nav.claudeConfig')}
               </div>
-              <nav className="space-y-0.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                <a
-                  href="#agents"
-                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
-                >
+              <nav className="space-y-0.5 text-xs font-medium text-muted-foreground">
+                <a href="#agents" className={navItemClass}>
                   <Bot className="w-3.5 h-3.5" />
                   <span>{t('agents')}</span>
                 </a>
-                <a
-                  href="#skills"
-                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
-                >
+                <a href="#skills" className={navItemClass}>
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>{t('skills')}</span>
                 </a>
-                <a
-                  href="#commands"
-                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
-                >
+                <a href="#commands" className={navItemClass}>
                   <Terminal className="w-3.5 h-3.5" />
                   <span>{t('commands')}</span>
                 </a>
-                <a
-                  href="#memory"
-                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
-                >
+                <a href="#memory" className={navItemClass}>
                   <Brain className="w-3.5 h-3.5" />
                   <span>{t('memory')}</span>
                 </a>
-                <a
-                  href="#mcp"
-                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
-                >
+                <a href="#mcp" className={navItemClass}>
                   <Network className="w-3.5 h-3.5" />
                   <span>{t('mcp')}</span>
                 </a>
-                <a
-                  href="#plugins"
-                  className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200"
-                >
+                <a href="#plugins" className={navItemClass}>
                   <Puzzle className="w-3.5 h-3.5" />
                   <span>{t('plugins')}</span>
                 </a>
@@ -537,17 +551,13 @@ export function App() {
             </div>
           </div>
 
-          {/* Footer Status */}
-          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 text-[11px] text-zinc-500">
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`w-2 h-2 rounded-full ${serverHealth ? 'bg-emerald-500' : 'bg-zinc-400'}`}></span>
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                {serverHealth ? 'Server online' : 'Server offline'}
-              </span>
-            </div>
-            <div className="text-[10px] text-zinc-400">
-              Server: {serverHealth ? `v${serverHealth.version} (online)` : 'connecting...'}
-            </div>
+          {/* Footer: Settings + Claude Code status (UI-WIREFRAMES 0) */}
+          <div className="pt-3 border-t border-border space-y-2">
+            <a href="#settings" className={`${navItemClass} text-xs font-medium text-muted-foreground`}>
+              <Settings className="w-3.5 h-3.5" />
+              <span>{t('settings')}</span>
+            </a>
+            <ClaudeStatus status={claudeStatus} serverOnline={serverOnline} />
           </div>
         </aside>
 
@@ -556,82 +566,59 @@ export function App() {
           /* SESSIONS LIST VIEW */
           <main className="flex-1 p-6 overflow-y-auto">
             <div className="max-w-4xl mx-auto space-y-6">
-              <div className="flex items-center justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center justify-between pb-4 border-b border-border">
                 <div>
                   <h1 className="text-xl font-bold tracking-tight">{t('sessions')}</h1>
-                  <p className="text-xs text-zinc-500 mt-0.5">
-                    Manage and coordinate multi-agent sessions on top of Claude Code
-                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t('sessionsPage.subtitle')}</p>
                 </div>
-                <button
-                  onClick={() => setIsCreatingSession(true)}
-                  className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm transition"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>{t('actions.newSession')}</span>
-                </button>
+                <Button size="sm" onClick={() => setIsCreatingSession(true)}>
+                  <Plus />
+                  {t('actions.newSession')}
+                </Button>
               </div>
 
-              {/* Create Session Dialog inline */}
+              {/* Create session (the full dialog of UI-WIREFRAMES 1 arrives in Phase 5) */}
               {isCreatingSession && (
                 <form
                   onSubmit={handleCreateSession}
-                  className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-3"
+                  className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3"
                 >
-                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Create New Session</h3>
+                  <h3 className="text-sm font-semibold">{t('sessionsPage.newTitle')}</h3>
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="Session Title (e.g. Implement login feature)..."
+                      placeholder={t('sessionsPage.titlePlaceholder')}
                       value={newSessionTitle}
                       onChange={(e) => setNewSessionTitle(e.target.value)}
-                      className="flex-1 px-3 py-1.5 text-xs rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="flex-1 px-3 py-1.5 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                       autoFocus
                     />
-                    <button
-                      type="submit"
-                      className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition"
-                    >
-                      {t('actions.save')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsCreatingSession(false)}
-                      className="px-3 py-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-md transition"
-                    >
+                    <Button type="submit" size="sm">
+                      {t('actions.create')}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setIsCreatingSession(false)}>
                       {t('actions.cancel')}
-                    </button>
+                    </Button>
                   </div>
                 </form>
               )}
 
               {authRequired && (
-                <div className="mb-4 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
                   <ShieldAlert className="w-4 h-4 shrink-0" />
-                  <span>
-                    Not signed in. Run <code className="font-mono">crewtree</code> (or open the login link printed by
-                    the dev server) to access your sessions.
-                  </span>
+                  <span>{t('auth.notSignedIn')}</span>
                 </div>
               )}
 
-              {/* Sessions Table / List */}
+              {/* Sessions list */}
               {authRequired ? null : sessions.length === 0 ? (
-                <div className="border border-dashed border-zinc-300 dark:border-zinc-800 rounded-xl p-10 text-center flex flex-col items-center justify-center bg-white/40 dark:bg-zinc-900/20">
-                  <div className="w-12 h-12 rounded-full bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-3">
-                    <Bot className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">No sessions yet</h3>
-                  <p className="text-xs text-zinc-500 max-w-sm mt-1">
-                    Create a session, select your agents and assign the Supervisor a goal.
-                  </p>
-                  <button
-                    onClick={() => setIsCreatingSession(true)}
-                    className="mt-4 flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{t('actions.newSession')}</span>
-                  </button>
+                <div className="border border-dashed border-border rounded-lg p-10 text-center flex flex-col items-center justify-center bg-card/40">
+                  <h3 className="text-sm font-semibold">{t('sessionsPage.emptyTitle')}</h3>
+                  <p className="text-xs text-muted-foreground max-w-sm mt-1">{t('sessionsPage.emptyBody')}</p>
+                  <Button size="sm" variant="link" className="mt-3" onClick={() => setIsCreatingSession(true)}>
+                    <Plus />
+                    {t('actions.newSession')}
+                  </Button>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -639,20 +626,22 @@ export function App() {
                     <div
                       key={s.id}
                       onClick={() => setSelectedSessionId(s.id)}
-                      className="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 hover:border-indigo-400 dark:hover:border-indigo-600/80 cursor-pointer flex items-center justify-between transition shadow-sm"
+                      className="p-3.5 rounded-lg border border-border bg-card hover:border-primary/60 cursor-pointer flex items-center justify-between transition shadow-sm"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                        <StatusDot visual={sessionVisual(s.status, s.activity)} />
                         <div>
-                          <div className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">{s.title}</div>
-                          <div className="text-[11px] text-zinc-500 mt-0.5">{s.cwd}</div>
+                          <div className="font-semibold text-sm">{s.title}</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
+                            {shortenPath(s.cwd, project?.homeDir)}
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4 text-xs text-zinc-500">
-                        <span>{new Date(s.createdAt).toLocaleDateString()}</span>
-                        <button className="px-2.5 py-1 text-xs font-medium rounded border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>{new Intl.DateTimeFormat(i18n.language).format(new Date(s.updatedAt))}</span>
+                        <Button size="sm" variant="outline" className="h-7">
                           {t('actions.open')}
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -661,93 +650,98 @@ export function App() {
             </div>
           </main>
         ) : (
-          /* ACTIVE SESSION WORKSPACE VIEW */
+          /* ACTIVE SESSION WORKSPACE VIEW (dev test page; the canvas layout of UI-WIREFRAMES 2 is Phase 5) */
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Session Workspace Header */}
-            <div className="h-11 border-b border-zinc-200 dark:border-zinc-800 px-4 flex items-center justify-between bg-white dark:bg-zinc-900 select-none">
+            <div className="h-11 border-b border-border px-4 flex items-center justify-between bg-card select-none">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setSelectedSessionId(null)}
-                  className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-                  title="Back to sessions"
+                  className="p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  title={t('workspace.back')}
+                  aria-label={t('workspace.back')}
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
                 <div className="font-semibold text-sm">{currentSession?.title}</div>
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium border border-emerald-200 dark:border-emerald-800">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>{currentSession?.status}</span>
-                </div>
-              </div>
-
-              <div className="text-xs text-zinc-500 flex items-center gap-3">
-                <span>{agents.length} agent(s)</span>
-                <span>•</span>
-                <span className="flex items-center gap-1">
-                  <Coins className="w-3 h-3" />
-                  {(currentSession?.totalTokens ?? 0) + usageStats.inputTokens + usageStats.outputTokens} tokens
-                </span>
-                {throttledRetryMs !== null && (
-                  <span className="flex items-center gap-1 text-orange-500 font-medium">
-                    <Clock className="w-3 h-3" />
-                    Rate limited — retry in {Math.ceil(throttledRetryMs / 1000)}s
+                {currentSession && (
+                  <StatusBadge
+                    visual={sessionVisual(currentSession.status, workspaceBusy ? 'running' : 'idle')}
+                    label={workspaceBusy ? t('status.running') : t(`sessionStatus.${currentSession.status}`)}
+                  />
+                )}
+                {currentSession && (
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {shortenPath(currentSession.cwd, project?.homeDir)}
                   </span>
                 )}
-                <button
+              </div>
+
+              <div className="text-xs text-muted-foreground flex items-center gap-3">
+                <span>{t('workspace.agentCount', { count: agents.length })}</span>
+                <span>·</span>
+                <span className="flex items-center gap-1">
+                  <Coins className="w-3 h-3" />
+                  {t('workspace.tokens', {
+                    count: (currentSession?.totalTokens ?? 0) + usageStats.inputTokens + usageStats.outputTokens,
+                  })}
+                </span>
+                {throttledRetryMs !== null && (
+                  <span className="flex items-center gap-1 text-violet-500 font-medium">
+                    <StatusDot visual="throttled" />
+                    {t('workspace.rateLimited', { seconds: Math.ceil(throttledRetryMs / 1000) })}
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  variant={showRawEventLog ? 'secondary' : 'outline'}
+                  className="h-7 text-[11px]"
                   onClick={() => setShowRawEventLog((v) => !v)}
-                  className={`px-2 py-0.5 text-[11px] rounded font-medium border flex items-center gap-1.5 transition ${
-                    showRawEventLog
-                      ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700'
-                      : 'text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                  }`}
-                  title="Toggle Raw Event Log"
                 >
-                  <Code2 className="w-3 h-3" />
-                  <span>Event Log</span>
-                </button>
+                  <Code2 />
+                  {t('workspace.eventLog')}
+                </Button>
               </div>
             </div>
 
-            {/* Split Workspace: Agents Tree Pane & Chat Pane */}
             <div className="flex-1 flex overflow-hidden">
-              {/* Agent Tree Diagram Pane */}
-              <div className="w-72 border-r border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 p-4 flex flex-col overflow-y-auto">
-                <div className="text-[11px] font-semibold tracking-wider text-zinc-400 uppercase mb-3">Agent Tree</div>
+              {/* Agents pane */}
+              <div className="w-72 border-r border-border bg-muted/30 p-4 flex flex-col overflow-y-auto">
+                <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase mb-3">
+                  {t('workspace.agentTree')}
+                </div>
                 <div className="space-y-3">
                   {agents.map((agent) => (
                     <div
                       key={agent.id}
-                      className="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm"
+                      className={`p-3 rounded-lg border border-border bg-card shadow-sm ${
+                        agent.status === 'suspended' ? 'opacity-70' : ''
+                      }`}
                     >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <Bot className="w-4 h-4 text-indigo-500" />
-                          <span className="font-semibold text-xs text-zinc-900 dark:text-zinc-100">
-                            {agent.alias || agent.agentName}
-                          </span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Bot className="w-4 h-4 text-primary shrink-0" />
+                          <span className="font-semibold text-xs truncate">{agent.alias || agent.agentName}</span>
                         </div>
-                        <span
-                          className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${statusBadge(agent.status ?? 'idle')}`}
-                        >
-                          {statusIcon(agent.status ?? 'idle')}
-                          {agent.status}
-                        </span>
+                        <StatusBadge visual={agentVisual(agent.status)} label={t(agentStatusKey(agent.status))} />
                       </div>
-                      <div className="text-[11px] text-zinc-500 mt-1">Scope: {agent.scope}</div>
+                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <span className="rounded border border-border px-1.5 py-px">{t(`scope.${agent.scope}`)}</span>
+                        {agent.status === 'suspended' && <span>{t('workspace.suspendedHint')}</span>}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
 
               {/* Chat & Stream Pane */}
-              <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-zinc-950">
-                {/* Messages List */}
+              <div className="flex-1 flex flex-col overflow-hidden bg-background">
                 <div className="flex-1 p-4 overflow-y-auto space-y-4">
                   {messages.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-zinc-400 text-xs">
-                      <Bot className="w-8 h-8 mb-2 opacity-50 text-indigo-500" />
-                      <p>Start interacting with the Supervisor agent.</p>
-                      <p className="text-[11px] mt-0.5">Send instructions or prompt the team to begin.</p>
+                    <div className="h-full flex flex-col items-center justify-center text-muted-foreground text-xs">
+                      <Bot className="w-8 h-8 mb-2 opacity-50 text-primary" />
+                      <p>{t('workspace.emptyChatTitle')}</p>
+                      <p className="text-[11px] mt-0.5">{t('workspace.emptyChatBody')}</p>
                     </div>
                   ) : (
                     messages.map((m) => (
@@ -756,31 +750,38 @@ export function App() {
                         className={`flex flex-col ${m.role === 'user' ? 'items-end' : m.role === 'system' ? 'items-center' : 'items-start'}`}
                       >
                         {m.role === 'system' ? (
-                          <div className="text-[11px] text-zinc-400 italic py-1">{m.content}</div>
+                          <div className="text-[11px] text-muted-foreground italic py-1">
+                            {m.i18nKey ? t(m.i18nKey, m.i18nArgs) : m.content}
+                          </div>
                         ) : (
                           <div
-                            className={`max-w-[80%] rounded-xl px-4 py-2.5 text-xs leading-relaxed ${
+                            className={`max-w-[80%] rounded-lg px-4 py-2.5 text-xs leading-relaxed ${
                               m.role === 'user'
-                                ? 'bg-indigo-600 text-white rounded-br-sm'
-                                : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 rounded-bl-sm border border-zinc-200 dark:border-zinc-800'
+                                ? 'bg-primary text-primary-foreground rounded-br-sm'
+                                : 'bg-muted text-foreground rounded-bl-sm border border-border'
                             }`}
                           >
-                            {m.content && <div className="whitespace-pre-wrap">{m.content}</div>}
+                            {m.content &&
+                              (m.role === 'assistant' ? (
+                                <Markdown>{m.content}</Markdown>
+                              ) : (
+                                <div className="whitespace-pre-wrap">{m.content}</div>
+                              ))}
                             {m.isStreaming && (
-                              <span className="inline-block w-1.5 h-3.5 bg-indigo-500 rounded-sm ml-0.5 animate-pulse" />
+                              <span className="inline-block w-1.5 h-3.5 bg-primary rounded-sm ml-0.5 animate-pulse" />
                             )}
-                            {/* Tool chips if any */}
+                            {/* Tool chips */}
                             {m.toolCalls && m.toolCalls.length > 0 && (
                               <div className={`space-y-1 ${m.content ? 'mt-2' : ''}`}>
                                 {m.toolCalls.map((tc, idx) => (
                                   <details
                                     key={idx}
-                                    className={`px-2 py-1.5 rounded text-[11px] font-mono border ${
+                                    className={`px-2 py-1.5 rounded-md text-[11px] font-mono border ${
                                       tc.isError
                                         ? 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50'
                                         : tc.output !== undefined
                                           ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/50'
-                                          : 'bg-black/5 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 border-black/5 dark:border-white/5'
+                                          : 'bg-black/5 dark:bg-white/5 text-muted-foreground border-border'
                                     }`}
                                   >
                                     <summary className="cursor-pointer select-none flex items-center gap-1.5 list-none">
@@ -789,16 +790,16 @@ export function App() {
                                       ) : tc.output !== undefined ? (
                                         <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
                                       ) : (
-                                        <Wrench className="w-3 h-3 animate-pulse text-indigo-400 shrink-0" />
+                                        <Wrench className="w-3 h-3 animate-pulse text-primary shrink-0" />
                                       )}
                                       <span className="font-semibold">{tc.tool}</span>
-                                      <span className="text-[10px] opacity-60 ml-auto">details</span>
+                                      <span className="text-[10px] opacity-60 ml-auto">{t('chat.toolDetails')}</span>
                                     </summary>
                                     <div className="mt-2 pt-1.5 border-t border-black/10 dark:border-white/10 space-y-1 text-[10px]">
                                       {tc.input && (
                                         <div>
                                           <div className="text-[9px] uppercase tracking-wider opacity-60 font-sans font-semibold">
-                                            Input:
+                                            {t('chat.toolInput')}
                                           </div>
                                           <pre className="overflow-x-auto whitespace-pre-wrap max-h-32">
                                             {JSON.stringify(tc.input, null, 2)}
@@ -808,7 +809,7 @@ export function App() {
                                       {tc.output !== undefined && (
                                         <div className="mt-1 pt-1 border-t border-black/5 dark:border-white/5">
                                           <div className="text-[9px] uppercase tracking-wider opacity-60 font-sans font-semibold">
-                                            Output:
+                                            {t('chat.toolOutput')}
                                           </div>
                                           <pre className="overflow-x-auto whitespace-pre-wrap max-h-32">
                                             {typeof tc.output === 'string'
@@ -829,36 +830,27 @@ export function App() {
                   )}
 
                   {isStreaming && (
-                    <div className="flex items-center gap-2 text-xs text-zinc-400">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
-                      <span>Supervisor is thinking and responding...</span>
-                    </div>
-                  )}
-
-                  {throttledRetryMs !== null && (
-                    <div className="flex items-center gap-2 text-xs text-orange-500 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-2">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>
-                        Rate limited by Claude API — auto-retrying in {Math.ceil(throttledRetryMs / 1000)} seconds
-                      </span>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                      <span>{t('chat.thinking', { name: supervisorName })}</span>
                     </div>
                   )}
 
                   <div ref={chatBottomRef} />
                 </div>
 
-                {/* Input Bar */}
+                {/* Input Bar (the shared Composer of UI-WIREFRAMES 3 arrives in Phase 4) */}
                 <form
                   onSubmit={handleSendMessage}
-                  className="p-3 border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center gap-2"
+                  className="p-3 border-t border-border bg-card flex items-center gap-2"
                 >
                   <input
                     type="text"
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
-                    placeholder="Message Supervisor (e.g. Break down the task, delegate to coder)..."
+                    placeholder={t('chat.placeholder', { name: supervisorName })}
                     disabled={isStreaming || throttledRetryMs !== null}
-                    className="flex-1 px-3 py-2 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                    className="flex-1 px-3 py-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                   />
                   {isStreaming || throttledRetryMs !== null ? (
                     <Button
@@ -866,42 +858,47 @@ export function App() {
                       size="icon"
                       variant="destructive"
                       onClick={handleInterrupt}
-                      title="Interrupt"
-                      aria-label="Interrupt"
+                      title={t('chat.interrupt')}
+                      aria-label={t('chat.interrupt')}
                     >
                       <Square />
                     </Button>
                   ) : (
-                    <Button type="submit" size="icon" disabled={!inputMessage.trim()} title="Send" aria-label="Send">
+                    <Button
+                      type="submit"
+                      size="icon"
+                      disabled={!inputMessage.trim()}
+                      title={t('chat.send')}
+                      aria-label={t('chat.send')}
+                    >
                       <Send />
                     </Button>
                   )}
                 </form>
               </div>
 
-              {/* Live Event Log Panel (collapsible) */}
+              {/* Live Event Log Panel (dev only) */}
               {showRawEventLog && (
-                <div className="w-80 border-l border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 p-3 flex flex-col overflow-hidden text-xs">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-200 dark:border-zinc-800">
-                    <span className="font-semibold text-[11px] uppercase tracking-wider text-zinc-400">
-                      Live Event Log
+                <div className="w-80 border-l border-border bg-muted/30 p-3 flex flex-col overflow-hidden text-xs">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+                    <span className="font-semibold text-[11px] uppercase tracking-wider text-muted-foreground">
+                      {t('eventLog.title')}
                     </span>
-                    <span className="text-[10px] text-zinc-500 font-mono">{rawEvents.length} events</span>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      {t('eventLog.count', { count: rawEvents.length })}
+                    </span>
                   </div>
                   <div className="flex-1 overflow-y-auto space-y-2 font-mono text-[11px]">
                     {rawEvents.length === 0 ? (
-                      <div className="text-zinc-400 text-center py-8 text-xs">No events captured yet</div>
+                      <div className="text-muted-foreground text-center py-8 text-xs">{t('eventLog.empty')}</div>
                     ) : (
                       rawEvents.map((e, idx) => (
-                        <div
-                          key={idx}
-                          className="p-2 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs"
-                        >
-                          <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
-                            <span className="text-indigo-600 dark:text-indigo-400 font-semibold">{e.type}</span>
-                            <span>{new Date(e.ts).toLocaleTimeString()}</span>
+                        <div key={idx} className="p-2 rounded-md bg-card border border-border shadow-xs">
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+                            <span className="text-primary font-semibold">{e.type}</span>
+                            <span>{new Date(e.ts).toLocaleTimeString(i18n.language)}</span>
                           </div>
-                          <div className="text-zinc-600 dark:text-zinc-300 text-[10px] break-all max-h-24 overflow-y-auto bg-black/5 dark:bg-black/30 p-1.5 rounded">
+                          <div className="text-muted-foreground text-[10px] break-all max-h-24 overflow-y-auto bg-black/5 dark:bg-black/30 p-1.5 rounded">
                             {JSON.stringify(e.payload)}
                           </div>
                         </div>
@@ -915,7 +912,7 @@ export function App() {
         )}
       </div>
       {saveError && (
-        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-3 text-xs bg-red-600 text-white rounded-lg px-3 py-2 shadow-lg">
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-3 text-xs bg-destructive text-destructive-foreground rounded-lg px-3 py-2 shadow-lg">
           <span>{t('settingsSaveFailed')}</span>
           <button onClick={() => persistUi(saveError.ui)} className="font-semibold underline">
             {t('retry')}

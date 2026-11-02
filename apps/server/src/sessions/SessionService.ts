@@ -341,6 +341,22 @@ export class SessionService {
   }
 
   /** Number of agent processes currently alive (Session settings shows it, PLAN.md 3.2). */
+  /** `running` while any agent of the session is working (UI legend ●), else `idle`. */
+  public getSessionActivity(sessionId: string): 'running' | 'idle' {
+    for (const runtime of this.activeRuntimes.values()) {
+      if (runtime.sessionId !== sessionId) continue;
+      if (runtime.isTurnActive() || ['running', 'waiting_input', 'waiting_children'].includes(runtime.getStatus())) {
+        return 'running';
+      }
+    }
+    return 'idle';
+  }
+
+  /** Any agent currently waiting on an account rate limit (sidebar shows "rate limited"). */
+  public hasThrottledAgent(): boolean {
+    return [...this.activeRuntimes.values()].some((r) => r.getStatus() === 'throttled');
+  }
+
   public getRunningProcessCount(sessionId?: string): number {
     let count = 0;
     for (const runtime of this.activeRuntimes.values()) {

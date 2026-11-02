@@ -4,31 +4,113 @@
   "sessions": "Sessions",
   "agents": "Agents",
   "skills": "Skills",
-  "commands": "Commands",
-  "memory": "Memory",
-  "mcp": "MCP Servers",
+  "commands": "Lệnh",
+  "memory": "Bộ nhớ",
+  "mcp": "MCP",
   "plugins": "Plugins",
   "settings": "Cài đặt",
-  "approvals": "yêu cầu chờ duyệt",
+  "nav": {
+    "workspace": "Không gian làm việc",
+    "claudeConfig": "Cấu hình Claude"
+  },
+  "header": {
+    "pending": "{{count}} chờ duyệt",
+    "pendingTitle": "Yêu cầu chờ duyệt",
+    "theme": "Giao diện",
+    "language": "Ngôn ngữ",
+    "openSettings": "Cài đặt"
+  },
+  "theme": {
+    "light": "Sáng",
+    "dark": "Tối",
+    "system": "Theo hệ thống"
+  },
+  "languages": {
+    "en": "English",
+    "vi": "Tiếng Việt"
+  },
+  "claude": {
+    "label": "Claude Code",
+    "loggedIn": "đã đăng nhập",
+    "notLoggedIn": "chưa đăng nhập",
+    "rateLimited": "bị giới hạn tốc độ",
+    "checking": "đang kiểm tra…",
+    "unknown": "chưa rõ trạng thái",
+    "serverOffline": "Server không chạy",
+    "loginHint": "Chạy `claude login` trong terminal"
+  },
+  "auth": {
+    "notSignedIn": "Chưa đăng nhập. Chạy crewtree (hoặc mở link đăng nhập mà dev server in ra) để xem các session."
+  },
+  "sessionsPage": {
+    "subtitle": "Quản lý và điều phối các session nhiều agent trên nền Claude Code",
+    "emptyTitle": "Chưa có session nào",
+    "emptyBody": "Tạo một session, chọn vài agent và giao mục tiêu cho Supervisor.",
+    "newTitle": "Session mới",
+    "titlePlaceholder": "Tên session (vd. Tính năng đăng nhập)"
+  },
+  "sessionStatus": {
+    "active": "Đang mở",
+    "paused": "Tạm dừng",
+    "completed": "Hoàn thành",
+    "stopped": "Đã dừng",
+    "error": "Lỗi"
+  },
+  "workspace": {
+    "back": "Quay lại danh sách session",
+    "agentCount_other": "{{count}} agent",
+    "tokens": "{{count}} token",
+    "eventLog": "Nhật ký event",
+    "agentTree": "Cây agent",
+    "rateLimited": "Bị giới hạn tốc độ · thử lại sau {{seconds}} giây",
+    "suspendedHint": "Đã tạm tắt · tự chạy lại khi có task mới",
+    "emptyChatTitle": "Giao một mục tiêu cho Supervisor.",
+    "emptyChatBody": "Supervisor sẽ lập kế hoạch và báo cáo lại tại đây."
+  },
+  "chat": {
+    "placeholder": "Nhắn cho {{name}}…",
+    "thinking": "{{name}} đang làm việc…",
+    "send": "Gửi",
+    "interrupt": "Ngắt",
+    "turnEnded": "Lượt đã bị ngắt hoặc lỗi.",
+    "agentError": "Agent lỗi: {{error}}",
+    "unknownError": "Lỗi không xác định",
+    "toolDetails": "chi tiết",
+    "toolInput": "Đầu vào",
+    "toolOutput": "Kết quả"
+  },
+  "eventLog": {
+    "title": "Nhật ký event trực tiếp",
+    "count_other": "{{count}} event",
+    "empty": "Chưa có event nào"
+  },
   "status": {
     "idle": "Rảnh",
     "running": "Đang chạy",
-    "queued": "Xếp hàng",
-    "waitingChildren": "Chờ agent con",
+    "queued": "Đang xếp hàng",
+    "waitingChildren": "Đang chờ agent con",
     "waitingInput": "Chờ duyệt quyền",
     "needsInput": "Cần bạn trả lời",
     "throttled": "Bị giới hạn tốc độ",
-    "suspended": "Tạm nghỉ",
+    "suspended": "Đã tạm tắt",
     "error": "Lỗi",
-    "done": "Hoàn thành"
+    "done": "Xong"
+  },
+  "scope": {
+    "crewtree": "Crewtree",
+    "user": "User",
+    "project": "Project",
+    "plugin": "Plugin",
+    "builtin": "Built-in"
   },
   "actions": {
-    "newSession": "Tạo session mới",
+    "newSession": "Session mới",
     "open": "Mở",
     "save": "Lưu",
-    "cancel": "Hủy",
-    "delete": "Xóa",
-    "allowOnce": "Cho phép 1 lần",
+    "cancel": "Huỷ",
+    "delete": "Xoá",
+    "create": "Tạo",
+    "allowOnce": "Cho phép một lần",
     "alwaysAllow": "Luôn cho phép",
     "deny": "Từ chối"
   },

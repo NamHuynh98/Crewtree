@@ -113,6 +113,34 @@ describe('session settings', () => {
   });
 });
 
+describe('shell data for the UI (UI-WIREFRAMES 0)', () => {
+  const get = (url: string) =>
+    app.inject({ method: 'GET', url, headers: { host: HOST }, cookies: { crewtree_session: createSessionCookie() } });
+
+  it('reports Claude Code login state and rate limiting', async () => {
+    const res = await get('/api/claude/status');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ login: 'logged_in', rateLimited: false });
+  });
+
+  it('returns the current project and pending approvals', async () => {
+    const project = (await get('/api/projects')).json().current;
+    expect(project.path).toBeTruthy();
+    expect(project.name).toBeTruthy();
+    expect((await get('/api/approvals?status=pending')).json()).toEqual([]);
+  });
+
+  it('marks session activity for the status legend', async () => {
+    const sessions = (await get('/api/sessions')).json();
+    for (const s of sessions) expect(['running', 'idle']).toContain(s.activity);
+  });
+
+  it('requires the cookie for these endpoints', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/claude/status', headers: { host: HOST } });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
 describe('boot settings (PLAN.md 11.1)', () => {
   it('persists UI language and injects it into index.html', async () => {
     const patched = await app.inject({

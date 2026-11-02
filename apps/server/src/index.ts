@@ -20,6 +20,10 @@ import { DEFAULT_PORT, AppSettingsSchema } from '@crewtree/shared';
 import { SessionService } from './sessions/SessionService.js';
 import { EventBus } from './events/EventBus.js';
 import { getAppSettings } from './settings/appSettings.js';
+import { ClaudeStatusService } from './claude/ClaudeStatusService.js';
+import { getCurrentProject, getCurrentProjectPath } from './projects/currentProject.js';
+import { approvalsTable } from './db/schema.js';
+import { eq as eqOp } from 'drizzle-orm';
 import { deepMerge } from './lib/deepMerge.js';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -219,7 +223,26 @@ export async function createServer() {
   });
 
   // Sessions API
-  fastify.get('/api/sessions', async () => sessionService.getSessions());
+  fastify.get('/api/sessions', async () =>
+    (await sessionService.getSessions()).map((s) => ({ ...s, activity: sessionService.getSessionActivity(s.id) }))
+  );
+
+  fastify.get('/api/projects', async () => ({ current: getCurrentProject() }));
+
+  // Claude Code login state + whether any agent is rate limited (UI-WIREFRAMES 0 sidebar footer)
+  fastify.get('/api/claude/status', async (req) => {
+    const { refresh } = req.query as { refresh?: string };
+    const account = await ClaudeStatusService.getInstance().getStatus(refresh === '1');
+    return { ...account, rateLimited: sessionService.hasThrottledAgent() };
+  });
+
+  // Pending approvals for the header badge; ApprovalService (Phase 2) creates them
+  fastify.get('/api/approvals', async (req) => {
+    const { status } = req.query as { status?: string };
+    const query = db.select().from(approvalsTable);
+    const rows = status ? query.where(eqOp(approvalsTable.status, status)).all() : query.all();
+    return rows.map((r) => ({ ...r, input: JSON.parse(r.input) }));
+  });
 
   fastify.post('/api/sessions', async (req, reply) => {
     const body = (req.body ?? {}) as {
@@ -229,7 +252,7 @@ export async function createServer() {
       supervisorModel?: string;
       settings?: unknown;
     };
-    const cwd = body.cwd || process.cwd();
+    const cwd = body.cwd || getCurrentProjectPath();
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
       reply.code(400).send({ error: `Working directory not found: ${cwd}` });
       return;
