@@ -8,6 +8,7 @@ import { SessionService } from '../src/sessions/SessionService.js';
 import { FakeDriver, FakeScenario, FakeTurnApi } from '../src/runtime/drivers/FakeDriver.js';
 import { ApprovalService } from '../src/approvals/ApprovalService.js';
 import { createToolHooks } from '../src/runtime/toolHooks.js';
+import { FileLockManager } from '../src/files/FileLockManager.js';
 import { parse, recordEvents, waitFor, writeAgent } from './helpers/tree.js';
 
 const sessions = SessionService.getInstance();
@@ -305,92 +306,101 @@ describe('tree limits (PLAN.md 4.2, 4.3)', () => {
 });
 
 describe('file locks and scope in hooks (PLAN.md 5)', () => {
-  it('denies an edit locked by another agent and asks for edits outside the task scope', async () => {
-    let lockedResult: { allowed: boolean; reason?: string } | undefined;
-    let outsideResult: { allowed: boolean; reason?: string } | undefined;
-    const hold = gate();
-    scripts['crewtree-supervisor'] = (content, _s, api) =>
-      (async () => {
-        if (content.startsWith('[Crewtree')) return;
-        const team = parse((await api.callTool('list_agents')).text);
-        await api.callTool('delegate_task', {
-          agentId: team[0].agentId,
-          title: 'Own',
-          instructions: 'x',
-          scope: ['src/a/**'],
-        });
-        await api.callTool('delegate_task', {
-          agentId: team[1].agentId,
-          title: 'Other',
-          instructions: 'x',
-          scope: ['src/b/**'],
-        });
-        await hold.promise;
-      })();
-    scripts.worker = (_c, _s, api: FakeTurnApi) =>
-      (async () => {
-        await api.useTool('Edit', { file_path: 'src/a/shared.ts' });
-        await hold.promise;
-      })();
-    scripts['worker-2'] = (_c, _s, api: FakeTurnApi) =>
-      (async () => {
-        await new Promise((r) => setTimeout(r, 100));
-        lockedResult = await api.useTool('Edit', { file_path: 'src/a/shared.ts' });
-        outsideResult = await api.useTool('Edit', { file_path: 'docs/notes.md' });
-        await hold.promise;
-      })();
+  it(
+    'denies an edit locked by another agent and asks for edits outside the task scope',
+    { timeout: 20000 },
+    async () => {
+      let lockedResult: { allowed: boolean; reason?: string } | undefined;
+      let outsideResult: { allowed: boolean; reason?: string } | undefined;
+      const hold = gate();
+      scripts['crewtree-supervisor'] = (content, _s, api) =>
+        (async () => {
+          if (content.startsWith('[Crewtree')) return;
+          const team = parse((await api.callTool('list_agents')).text);
+          await api.callTool('delegate_task', {
+            agentId: team[0].agentId,
+            title: 'Own',
+            instructions: 'x',
+            scope: ['src/a/**'],
+          });
+          await api.callTool('delegate_task', {
+            agentId: team[1].agentId,
+            title: 'Other',
+            instructions: 'x',
+            scope: ['src/b/**'],
+          });
+          await hold.promise;
+        })();
+      scripts.worker = (_c, _s, api: FakeTurnApi) =>
+        (async () => {
+          await api.useTool('Edit', { file_path: 'src/a/shared.ts' });
+          await hold.promise;
+        })();
+      scripts['worker-2'] = (_c, _s, api: FakeTurnApi) =>
+        (async () => {
+          // Deterministic: edit only once worker really holds the lease (CI runners are slow)
+          await waitFor(
+            () => !!FileLockManager.getInstance().holderOf(path.resolve(cwd, 'src/a/shared.ts')),
+            8000,
+            'lease held'
+          );
+          lockedResult = await api.useTool('Edit', { file_path: 'src/a/shared.ts' });
+          outsideResult = await api.useTool('Edit', { file_path: 'docs/notes.md' });
+          await hold.promise;
+        })();
 
-    const approvals = ApprovalService.getInstance();
-    const decided: string[] = [];
-    const onEvent = (e: AgentEvent) => {
-      if (e.type === 'approval.created') {
-        decided.push(e.payload.label ?? 'normal');
-        setTimeout(
-          () =>
-            approvals.decide(e.payload.id, {
-              decision: e.payload.label ? 'deny' : 'allow',
-              rule: 'once',
-              reason: 'stay in scope',
-            }),
-          1
-        );
-      }
-    };
-    const bus = (await import('../src/events/EventBus.js')).EventBus.getInstance();
-    bus.on('event', onEvent);
-    const { session } = await newSession([{ agentName: 'worker' }, { agentName: 'worker', alias: 'worker-2' }]);
-    await sessions.sendUserMessage(session.id, undefined, 'go');
-    try {
-      await waitFor(() => outsideResult !== undefined, 4000, 'worker-2 done');
-    } finally {
-      if (process.env.DEBUG_TREE) {
-        const agents = await sessions.getSessionAgents(session.id);
-        const nm = (x?: string | null) => agents.find((a) => a.id === x)?.alias ?? x;
-        for (const e of events.filter(
-          (x) => x.sessionId === session.id && !['agent.text.delta', 'usage.updated'].includes(x.type)
-        )) {
-          const p = e.payload as any;
-          console.log(
-            'DBG',
-            nm(e.sessionAgentId),
-            e.type,
-            JSON.stringify(p.status ?? p.tool ?? p.label ?? p.output ?? p.title ?? '').slice(0, 140)
+      const approvals = ApprovalService.getInstance();
+      const decided: string[] = [];
+      const onEvent = (e: AgentEvent) => {
+        if (e.type === 'approval.created') {
+          decided.push(e.payload.label ?? 'normal');
+          setTimeout(
+            () =>
+              approvals.decide(e.payload.id, {
+                decision: e.payload.label ? 'deny' : 'allow',
+                rule: 'once',
+                reason: 'stay in scope',
+              }),
+            1
           );
         }
+      };
+      const bus = (await import('../src/events/EventBus.js')).EventBus.getInstance();
+      bus.on('event', onEvent);
+      const { session } = await newSession([{ agentName: 'worker' }, { agentName: 'worker', alias: 'worker-2' }]);
+      await sessions.sendUserMessage(session.id, undefined, 'go');
+      try {
+        await waitFor(() => outsideResult !== undefined, 12000, 'worker-2 done');
+      } finally {
+        if (process.env.DEBUG_TREE) {
+          const agents = await sessions.getSessionAgents(session.id);
+          const nm = (x?: string | null) => agents.find((a) => a.id === x)?.alias ?? x;
+          for (const e of events.filter(
+            (x) => x.sessionId === session.id && !['agent.text.delta', 'usage.updated'].includes(x.type)
+          )) {
+            const p = e.payload as any;
+            console.log(
+              'DBG',
+              nm(e.sessionAgentId),
+              e.type,
+              JSON.stringify(p.status ?? p.tool ?? p.label ?? p.output ?? p.title ?? '').slice(0, 140)
+            );
+          }
+        }
       }
-    }
-    bus.off('event', onEvent);
+      bus.off('event', onEvent);
 
-    expect(lockedResult).toMatchObject({ allowed: false });
-    expect(lockedResult!.reason).toMatch(/src\/a\/shared.ts is locked by worker/);
-    expect(
-      events.some((e) => e.sessionId === session.id && e.type === 'file.conflict' && e.payload.holder === 'worker')
-    ).toBe(true);
-    expect(outsideResult).toEqual({ allowed: false, reason: 'stay in scope' });
-    expect(decided).toEqual(['normal', 'outside_scope']);
-    hold.open();
-    await sessions.stopSession(session.id);
-  });
+      expect(lockedResult).toMatchObject({ allowed: false });
+      expect(lockedResult!.reason).toMatch(/src\/a\/shared.ts is locked by worker/);
+      expect(
+        events.some((e) => e.sessionId === session.id && e.type === 'file.conflict' && e.payload.holder === 'worker')
+      ).toBe(true);
+      expect(outsideResult).toEqual({ allowed: false, reason: 'stay in scope' });
+      expect(decided).toEqual(['normal', 'outside_scope']);
+      hold.open();
+      await sessions.stopSession(session.id);
+    }
+  );
 
   it('hooks: no scope restriction for direct user chats', async () => {
     const { session, id } = await newSession([{ agentName: 'worker' }]);

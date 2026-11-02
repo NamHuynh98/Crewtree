@@ -259,3 +259,23 @@ describe('AgentRuntime', () => {
     expect(runtime.getStatus()).toBe('idle');
   });
 });
+
+describe('concurrency slots', () => {
+  it('does not keep a slot when the turn ended while waiting for children (cancel race)', async () => {
+    const { ConcurrencyLimiter } = await import('../src/runtime/ConcurrencyLimiter.js');
+    const limiter = new ConcurrencyLimiter(() => ({ global: 1, session: 1 }));
+    const { runtime } = makeRuntime(makeAgent(), { limiter, scenario: () => new Promise<void>(() => {}) });
+    await runtime.start();
+    await runtime.sendMessage('long task');
+    expect(limiter.runningCount()).toBe(1);
+
+    runtime.enterWaitingChildren(1); // inside wait_for_tasks: slot released
+    expect(limiter.runningCount()).toBe(0);
+    await runtime.interrupt(); // task cancelled: the turn ends
+    await waitFor(() => !runtime.isTurnActive());
+    await runtime.leaveWaitingChildren(); // the wait returns afterwards
+
+    expect(limiter.runningCount()).toBe(0);
+    expect(runtime.getStatus()).toBe('idle');
+  });
+});

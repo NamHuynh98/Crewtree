@@ -162,8 +162,21 @@ export class AgentRuntime {
 
   /** Back from wait_for_tasks: may queue for a slot before the agent continues generating. */
   public async leaveWaitingChildren(): Promise<void> {
-    await this.acquireSlot();
-    if (this.turnActive) this.setStatus('running');
+    await this.reacquireSlotForTurn();
+  }
+
+  /**
+   * Gets a slot back to continue the current turn. The turn may have ended (interrupt, cancel) while
+   * the agent waited: then the slot must not be kept, or it would leak for good.
+   */
+  private async reacquireSlotForTurn(): Promise<void> {
+    if (!this.turnActive || this.disposed) return;
+    await this.acquireSlot().catch(() => undefined);
+    if (!this.turnActive || this.disposed) {
+      this.releaseSlot();
+      return;
+    }
+    this.setStatus('running');
   }
 
   private setStatus(newStatus: AgentStatus, extra: Record<string, unknown> = {}) {
@@ -270,10 +283,7 @@ export class AgentRuntime {
     try {
       return await this.options.canUseTool(toolName, input, onPending);
     } finally {
-      if (waited && this.turnActive && !this.disposed) {
-        await this.acquireSlot().catch(() => undefined);
-        this.setStatus('running');
-      }
+      if (waited) await this.reacquireSlotForTurn();
     }
   }
 
