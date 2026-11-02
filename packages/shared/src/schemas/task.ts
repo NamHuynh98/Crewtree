@@ -20,6 +20,9 @@ export const TaskSchema = z.object({
   resultSummary: z.string().nullable().optional(),
   resultDetails: z.string().nullable().optional(),
   completedBy: z.enum(['tool', 'auto']).nullable().optional(),
+  progress: z.string().nullable().optional(),
+  files: z.array(z.string()).default([]),
+  createdAt: z.number().int(),
   startedAt: z.number().int().nullable().optional(),
   endedAt: z.number().int().nullable().optional(),
 });

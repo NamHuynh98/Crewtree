@@ -76,6 +76,9 @@ export const tasksTable = sqliteTable(
     resultSummary: text('result_summary'),
     resultDetails: text('result_details'),
     completedBy: text('completed_by'),
+    progress: text('progress'),
+    files: text('files'), // JSON array of attachment paths forwarded to the child
+    createdAt: integer('created_at').notNull().default(0),
     startedAt: integer('started_at'),
     endedAt: integer('ended_at'),
   },
@@ -128,6 +131,9 @@ export const approvalsTable = sqliteTable('approvals', {
   rule: text('rule'),
   pattern: text('pattern'),
   reason: text('reason'),
+  label: text('label'), // e.g. 'outside_scope'
+  suggestedPattern: text('suggested_pattern'),
+  taskId: text('task_id'),
   createdAt: integer('created_at').notNull(),
   decidedAt: integer('decided_at'),
 });

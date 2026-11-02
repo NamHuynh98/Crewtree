@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 import { RuntimeType } from '@crewtree/shared';
 import type { ClaudeConfigOptions } from './claudeConfig.js';
+import type { BoundTool } from './mcp/createAgentMcpServer.js';
+
+/** Result a tool hook returns to the runtime (subset of Claude Code's PreToolUse output). */
+export interface ToolHookDecision {
+  decision?: 'allow' | 'deny' | 'ask';
+  reason?: string;
+}
+
+/** Crewtree's tool hooks (PLAN.md 5): file locks, scope checks, file_touches, Bash attribution. */
+export interface DriverToolHooks {
+  preToolUse?: (toolName: string, input: any, toolUseId?: string) => Promise<ToolHookDecision>;
+  postToolUse?: (toolName: string, input: any, response: unknown, toolUseId?: string) => Promise<void>;
+}
 
 export interface DriverCapabilities {
   supportsPreToolHook: boolean;
@@ -30,6 +43,11 @@ export interface DriverOptions {
   sessionAgentId: string;
   mcpServers?: Record<string, any>;
   claudeConfig?: ClaudeConfigOptions;
+  hooks?: DriverToolHooks;
+  /** Max agentic turns per user message (session/agent limit) */
+  maxTurns?: number;
+  /** The same tools as `mcpServers.crewtree`, callable directly (FakeDriver) */
+  boundTools?: BoundTool[];
   /** Raw runtime messages (SDK message shape) plus synthetic `crewtree.*` messages. */
   onEvent?: (event: any) => void;
   canUseTool?: (toolName: string, input: any) => Promise<PermissionDecision>;
@@ -51,4 +69,6 @@ export interface AgentDriver {
   dispose(): Promise<void>;
   /** Runtime session id used for `resume` (Claude Code: sdk_session_id). */
   getSessionId(): string | undefined;
+  /** Switches the model from the next turn, keeping context (optional capability). */
+  setModel?(model: string | undefined): Promise<void>;
 }

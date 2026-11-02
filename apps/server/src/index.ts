@@ -20,10 +20,9 @@ import { DEFAULT_PORT, AppSettingsSchema } from '@crewtree/shared';
 import { SessionService } from './sessions/SessionService.js';
 import { EventBus } from './events/EventBus.js';
 import { getAppSettings } from './settings/appSettings.js';
-import { ClaudeStatusService } from './claude/ClaudeStatusService.js';
-import { getCurrentProject, getCurrentProjectPath } from './projects/currentProject.js';
-import { approvalsTable } from './db/schema.js';
-import { eq as eqOp } from 'drizzle-orm';
+import { registerOrchestrationRoutes } from './routes/orchestration.js';
+import { ensureDefaultSupervisor } from './resources/agents/defaultSupervisor.js';
+import { getCurrentProjectPath } from './projects/currentProject.js';
 import { deepMerge } from './lib/deepMerge.js';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -208,149 +207,7 @@ export async function createServer() {
     return parsed.data;
   });
 
-  // Fallback list until ModelCatalogService (Phase 3) reads supportedModels()
-  fastify.get('/api/models', async () => {
-    return {
-      source: 'fallback',
-      fetchedAt: Date.now(),
-      models: [
-        { value: 'opus', displayName: 'Opus', description: 'Most capable; default for coordinating nodes' },
-        { value: 'sonnet', displayName: 'Sonnet', description: 'Balanced; default for worker nodes' },
-        { value: 'haiku', displayName: 'Haiku', description: 'Fast and lightweight' },
-        { value: 'inherit', displayName: 'Inherit', description: 'Use the Claude Code default model' },
-      ],
-    };
-  });
-
-  // Sessions API
-  fastify.get('/api/sessions', async () =>
-    (await sessionService.getSessions()).map((s) => ({ ...s, activity: sessionService.getSessionActivity(s.id) }))
-  );
-
-  fastify.get('/api/projects', async () => ({ current: getCurrentProject() }));
-
-  // Claude Code login state + whether any agent is rate limited (UI-WIREFRAMES 0 sidebar footer)
-  fastify.get('/api/claude/status', async (req) => {
-    const { refresh } = req.query as { refresh?: string };
-    const account = await ClaudeStatusService.getInstance().getStatus(refresh === '1');
-    return { ...account, rateLimited: sessionService.hasThrottledAgent() };
-  });
-
-  // Pending approvals for the header badge; ApprovalService (Phase 2) creates them
-  fastify.get('/api/approvals', async (req) => {
-    const { status } = req.query as { status?: string };
-    const query = db.select().from(approvalsTable);
-    const rows = status ? query.where(eqOp(approvalsTable.status, status)).all() : query.all();
-    return rows.map((r) => ({ ...r, input: JSON.parse(r.input) }));
-  });
-
-  fastify.post('/api/sessions', async (req, reply) => {
-    const body = (req.body ?? {}) as {
-      title?: string;
-      cwd?: string;
-      supervisorName?: string;
-      supervisorModel?: string;
-      settings?: unknown;
-    };
-    const cwd = body.cwd || getCurrentProjectPath();
-    if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
-      reply.code(400).send({ error: `Working directory not found: ${cwd}` });
-      return;
-    }
-    const settings = sessionService.resolveSettings(body.settings ?? {});
-    if (!settings.success) {
-      reply.code(400).send({ error: 'Invalid session settings', issues: settings.error.issues });
-      return;
-    }
-    return sessionService.createSession({
-      title: body.title || 'New Session',
-      cwd,
-      supervisorName: body.supervisorName,
-      supervisorModel: body.supervisorModel,
-      settings: settings.data,
-    });
-  });
-
-  // Session settings: limits, Claude Code config groups, idleSuspendMinutes (PLAN.md 3.6, 15.1)
-  fastify.patch('/api/sessions/:id', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { title?: string; settings?: unknown };
-    const session = await sessionService.getSession(id);
-    if (!session) {
-      reply.code(404).send({ error: 'Session not found' });
-      return;
-    }
-    const settings = sessionService.resolveSettings(body.settings ?? {}, session.settings);
-    if (!settings.success) {
-      reply.code(400).send({ error: 'Invalid session settings', issues: settings.error.issues });
-      return;
-    }
-    return sessionService.updateSession(id, { title: body.title, settings: settings.data });
-  });
-
-  fastify.get('/api/sessions/:id', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const session = await sessionService.getSession(id);
-    if (!session) {
-      reply.code(404).send({ error: 'Session not found' });
-      return;
-    }
-    const agents = await sessionService.getSessionAgents(id);
-    const messages = await sessionService.getSessionMessages(id);
-    return { session, agents, messages, runningProcesses: sessionService.getRunningProcessCount(id) };
-  });
-
-  fastify.post('/api/sessions/:id/messages', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const { content } = (req.body ?? {}) as { content?: string };
-    if (!content) {
-      reply.code(400).send({ error: 'Message content is required' });
-      return;
-    }
-    try {
-      await sessionService.sendMessageToSupervisor(id, content);
-    } catch (err: any) {
-      reply.code(404).send({ error: err.message });
-      return;
-    }
-    return { status: 'sent' };
-  });
-
-  fastify.post('/api/sessions/:id/agents/:said/messages', async (req, reply) => {
-    const { id, said } = req.params as { id: string; said: string };
-    const { content } = (req.body ?? {}) as { content?: string };
-    if (!content) {
-      reply.code(400).send({ error: 'Message content is required' });
-      return;
-    }
-    try {
-      await sessionService.sendMessageToAgent(id, said, content);
-    } catch (err: any) {
-      reply.code(404).send({ error: err.message });
-      return;
-    }
-    return { status: 'sent' };
-  });
-
-  fastify.post('/api/sessions/:id/agents/:said/interrupt', async (req, reply) => {
-    const { id, said } = req.params as { id: string; said: string };
-    try {
-      await sessionService.interruptAgent(id, said);
-    } catch (err: any) {
-      reply.code(404).send({ error: err.message });
-      return;
-    }
-    return { status: 'interrupted' };
-  });
-
-  fastify.get('/api/sessions/:id/events', async (req) => {
-    const { id } = req.params as { id: string };
-    const { after, agent, limit } = req.query as { after?: string; agent?: string; limit?: string };
-    return eventBus.getEventsAfter(id, parseInt(after || '0', 10) || 0, {
-      sessionAgentId: agent,
-      limit: Math.min(parseInt(limit || '500', 10) || 500, 2000),
-    });
-  });
+  registerOrchestrationRoutes(fastify);
 
   let shuttingDown = false;
   const shutdown = async () => {
@@ -464,6 +321,10 @@ async function start() {
       console.log(`🔑 Login (Vite dev): http://localhost:${WEB_DEV_PORT}/auth?t=${generateOneTimeToken()}`);
     }
     console.log('   (one-time links, valid for 60s)\n');
+    // Default Supervisor when the library has none (PLAN.md 4.1); not blocking startup
+    void ensureDefaultSupervisor(getCurrentProjectPath()).catch((err) =>
+      console.warn('[crewtree] Could not create the default supervisor:', err)
+    );
   } catch (err) {
     app.log.error(err);
     process.exit(1);

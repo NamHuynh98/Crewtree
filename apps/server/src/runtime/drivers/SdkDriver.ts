@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { query, Query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { AgentDriver, DriverCapabilities, DriverOptions } from '../AgentDriver.js';
+import { AgentDriver, DriverCapabilities, DriverOptions, DriverToolHooks } from '../AgentDriver.js';
 import { RuntimeType } from '@crewtree/shared';
 
 export class AsyncQueue<T> implements AsyncIterable<T> {
@@ -50,6 +50,52 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
       },
     };
   }
+}
+
+/** Wait time for a hook in seconds; approvals happen in canUseTool, hooks only answer locally. */
+const HOOK_TIMEOUT_SEC = 60;
+
+function toSdkHooks(hooks: DriverToolHooks): Options['hooks'] {
+  const result: NonNullable<Options['hooks']> = {};
+  if (hooks.preToolUse) {
+    const pre = hooks.preToolUse;
+    result.PreToolUse = [
+      {
+        timeout: HOOK_TIMEOUT_SEC,
+        hooks: [
+          async (input) => {
+            if (input.hook_event_name !== 'PreToolUse') return {};
+            const decision = await pre(input.tool_name, input.tool_input, input.tool_use_id);
+            if (!decision.decision) return {};
+            return {
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: decision.decision,
+                permissionDecisionReason: decision.reason,
+              },
+            };
+          },
+        ],
+      },
+    ];
+  }
+  if (hooks.postToolUse) {
+    const post = hooks.postToolUse;
+    result.PostToolUse = [
+      {
+        timeout: HOOK_TIMEOUT_SEC,
+        hooks: [
+          async (input) => {
+            if (input.hook_event_name === 'PostToolUse') {
+              await post(input.tool_name, input.tool_input, input.tool_response, input.tool_use_id);
+            }
+            return {};
+          },
+        ],
+      },
+    ];
+  }
+  return result;
 }
 
 function userMessage(content: string): SDKUserMessage {
@@ -110,6 +156,8 @@ export class SdkDriver implements AgentDriver {
     };
 
     if (options.mcpServers) queryOptions.mcpServers = options.mcpServers;
+    if (options.maxTurns) queryOptions.maxTurns = options.maxTurns;
+    if (options.hooks) queryOptions.hooks = toSdkHooks(options.hooks);
 
     const cfg = options.claudeConfig;
     if (cfg?.settingSources) queryOptions.settingSources = cfg.settingSources;
@@ -173,6 +221,10 @@ export class SdkDriver implements AgentDriver {
     if (this.isDisposed) return;
     this.lastSentContent = content;
     this.inputQueue.push(userMessage(content));
+  }
+
+  async setModel(model: string | undefined): Promise<void> {
+    if (this.queryInstance && !this.isDisposed) await this.queryInstance.setModel(model);
   }
 
   async interrupt(): Promise<void> {

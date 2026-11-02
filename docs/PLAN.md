@@ -812,14 +812,14 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 - Kết quả: chat với 1 agent, tool call stream realtime, suspend/resume hoạt động
 
 ### Phase 2 — Điều phối N tầng (6 ngày)
-- [ ] TaskManager (state machine có `needs_input`), toàn bộ tool điều phối và tool của agent con (`complete_task`, `ask_parent`, `report_progress`)
-- [ ] Quyền theo cây, giới hạn depth/total, concurrency chỉ tính agent đang sinh output, huỷ lan xuống, tóm tắt đi lên, `user_interventions`
-- [ ] Root task cho tin nhắn gửi Supervisor; hàng đợi tin nhắn + Interrupt & send; trạng thái session (active/paused/completed/stopped)
-- [ ] Kiểm tra `scope` phía server (từ chối scope trùng, sửa ngoài scope → Approval); tự thêm `mcp__crewtree__*` vào allowedTools
-- [ ] Supervisor mặc định trong scope Crewtree (template Phụ lục A.1, chọn model tốt nhất, thông báo khi tạo); đoạn prompt chèn thêm (Phụ lục A.2, A.3)
-- [ ] FileLockManager, file_touches, ghi nhận thay đổi qua Bash, snapshot, checkpoint git (ref riêng)
-- [ ] ApprovalService (rule theo tool + mẫu, browser notification)
-- Kết quả: kịch bản cây 3 tầng chạy trọn với FakeDriver và tài khoản thật (qua trang test)
+- [x] TaskManager (state machine có `needs_input`), toàn bộ tool điều phối và tool của agent con (`complete_task`, `ask_parent`, `report_progress`)
+- [x] Quyền theo cây, giới hạn depth/total, concurrency chỉ tính agent đang sinh output, huỷ lan xuống, tóm tắt đi lên, `user_interventions`
+- [x] Root task cho tin nhắn gửi Supervisor; hàng đợi tin nhắn + Interrupt & send; trạng thái session (active/paused/completed/stopped)
+- [x] Kiểm tra `scope` phía server (từ chối scope trùng, sửa ngoài scope → Approval); tự thêm `mcp__crewtree__*` vào allowedTools
+- [x] Supervisor mặc định trong scope Crewtree (template Phụ lục A.1, chọn model tốt nhất, thông báo khi tạo); đoạn prompt chèn thêm (Phụ lục A.2, A.3)
+- [x] FileLockManager, file_touches, ghi nhận thay đổi qua Bash, snapshot, checkpoint git (ref riêng)
+- [x] ApprovalService (rule theo tool + mẫu, browser notification)
+- Kết quả: kịch bản cây 3 tầng chạy trọn với FakeDriver (`test/orchestration.e2e.test.ts`) và tài khoản thật qua trang test (Supervisor Sonnet → researcher, analyst có `ask_parent`, lead-coder → implementer tự sinh; có duyệt quyền, "Always allow", chat trực tiếp với node con, checkpoint git)
 
 ### Phase 3 — Tài nguyên và Agents (3 ngày)
 - [ ] ResourceScanner + watcher cho mọi loại, badge nguồn (gồm scope Crewtree), "Move to scope…", built-in chỉ tham khảo, project switcher

@@ -29,7 +29,8 @@ describe('database migrations', () => {
     const projects = db.prepare('SELECT COUNT(*) AS n FROM projects').get() as { n: number };
     db.close();
 
-    expect(applied.n).toBe(2);
+    const journal = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../drizzle/meta/_journal.json'), 'utf8'));
+    expect(applied.n).toBe(journal.entries.length);
     expect(indexes).toHaveLength(1);
     expect(projects.n).toBe(1);
   });

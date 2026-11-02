@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-import { AgentDriver, DriverOptions, PermissionDecision } from './AgentDriver.js';
+import { AgentDriver, DriverOptions, DriverToolHooks, PermissionDecision } from './AgentDriver.js';
 import { SdkDriver } from './drivers/SdkDriver.js';
 import { FakeDriver } from './drivers/FakeDriver.js';
 import { CliDriver } from './drivers/CliDriver.js';
 import {
+  bindTools,
   createAgentMcpServer,
   CREWTREE_MCP_SERVER_NAME,
   CREWTREE_TOOLS_PATTERN,
   OrchestratorHandlers,
 } from './mcp/createAgentMcpServer.js';
+import type { ConcurrencyLimiter } from './ConcurrencyLimiter.js';
 import { EventNormalizer } from './eventNormalizer.js';
 import { parseAgentSnapshot, normalizeToolList, ParsedAgentSnapshot } from './agentDefinition.js';
 import { buildClaudeConfigOptions, ConfigGroups } from './claudeConfig.js';
@@ -28,6 +30,8 @@ export interface TurnUsage {
   cacheCreationTokens: number;
   numTurns: number;
   isError: boolean;
+  /** Last top-level text block of the turn: the final answer, used as auto summary (PLAN.md 4.2) */
+  lastText: string;
 }
 
 export interface AgentRuntimeOptions {
@@ -43,8 +47,17 @@ export interface AgentRuntimeOptions {
   /** Used when neither the session override nor the agent's frontmatter sets a model. */
   defaultModel?: string;
   mcpHandlers?: Partial<OrchestratorHandlers>;
-  canUseTool?: (toolName: string, input: any) => Promise<PermissionDecision>;
+  /** `onPending` is called when the request actually waits for the user (status waiting_input). */
+  canUseTool?: (toolName: string, input: any, onPending: () => void) => Promise<PermissionDecision>;
   onTurnComplete?: (usage: TurnUsage) => void;
+  /** The process failed (status `error`) */
+  onError?: (error: string) => void;
+  /** Slots for agents generating output (PLAN.md 4.3) */
+  limiter?: ConcurrencyLimiter;
+  hooks?: DriverToolHooks;
+  /** Runtime-only additions to the system prompt (Appendix A.2 / A.3) */
+  promptAppendix?: string;
+  maxTurns?: number;
 }
 
 /** Appended at runtime, never written to the .md file (PLAN.md 11.2). */
@@ -54,7 +67,7 @@ export const LANGUAGE_RULE =
 
 const THROTTLE_BASE_MS = 30_000;
 const THROTTLE_MAX_MS = 15 * 60_000;
-const BUSY_STATUSES: AgentStatus[] = ['running', 'waiting_input', 'throttled'];
+const BUSY_STATUSES: AgentStatus[] = ['running', 'queued', 'waiting_input', 'waiting_children', 'throttled'];
 
 export class AgentRuntime {
   private driver?: AgentDriver;
@@ -71,6 +84,7 @@ export class AgentRuntime {
   private idleTimer?: NodeJS.Timeout;
   private throttleTimer?: NodeJS.Timeout;
   private disposed = false;
+  private lastText = '';
 
   constructor(private options: AgentRuntimeOptions) {
     const agent = options.sessionAgent;
@@ -107,6 +121,49 @@ export class AgentRuntime {
 
   public isTurnActive(): boolean {
     return this.turnActive;
+  }
+
+  public get sessionAgent(): SessionAgent {
+    return this.options.sessionAgent;
+  }
+
+  public get description(): string {
+    return this.parsed.frontmatter.description;
+  }
+
+  public get delegates(): '*' | string[] {
+    return this.parsed.frontmatter.delegates;
+  }
+
+  /** Status shown between turns, set by the TaskManager (`needs_input` after ask_parent). */
+  public setRestingStatus(status: 'idle' | 'needs_input'): void {
+    if (!this.turnActive && this.status !== 'suspended' && this.status !== 'error') this.setStatus(status);
+  }
+
+  private async acquireSlot(): Promise<void> {
+    const limiter = this.options.limiter;
+    if (!limiter || limiter.holds(this.options.sessionAgent.id)) return;
+    const acquired = limiter.acquire(this.options.sessionId, this.options.sessionAgent.id);
+    if (!limiter.holds(this.options.sessionAgent.id)) {
+      this.setStatus('queued', { runningAgents: limiter.runningCount() });
+    }
+    await acquired;
+  }
+
+  private releaseSlot(): void {
+    this.options.limiter?.release(this.options.sessionAgent.id);
+  }
+
+  /** wait_for_tasks: waiting children does not hold a concurrency slot, so the tree cannot deadlock. */
+  public enterWaitingChildren(waitingFor: number): void {
+    this.releaseSlot();
+    this.setStatus('waiting_children', { waitingFor });
+  }
+
+  /** Back from wait_for_tasks: may queue for a slot before the agent continues generating. */
+  public async leaveWaitingChildren(): Promise<void> {
+    await this.acquireSlot();
+    if (this.turnActive) this.setStatus('running');
   }
 
   private setStatus(newStatus: AgentStatus, extra: Record<string, unknown> = {}) {
@@ -163,10 +220,11 @@ export class AgentRuntime {
     }
 
     const ctx = { sessionId: this.options.sessionId, sessionAgentId: agent.id, canDelegate: this.canDelegate };
+    const prompt = [this.parsed.systemPrompt, this.options.promptAppendix, LANGUAGE_RULE].filter(Boolean).join('\n\n');
 
     return {
       cwd: this.options.cwd,
-      systemPrompt: `${this.parsed.systemPrompt}\n\n${LANGUAGE_RULE}`,
+      systemPrompt: prompt,
       model: this.model,
       tools: normalizeToolList(this.parsed.frontmatter.tools),
       // Only Crewtree's own tools are auto-approved; everything else goes through settings rules / Approval.
@@ -174,6 +232,9 @@ export class AgentRuntime {
       resumeSessionId: agent.sdkSessionId || undefined,
       sessionAgentId: agent.id,
       mcpServers: { [CREWTREE_MCP_SERVER_NAME]: createAgentMcpServer(ctx, this.options.mcpHandlers) },
+      boundTools: bindTools(ctx, this.options.mcpHandlers),
+      hooks: this.options.hooks,
+      maxTurns: this.options.maxTurns ?? this.parsed.frontmatter.maxTurns,
       claudeConfig,
       canUseTool: (toolName, input) => this.handleCanUseTool(toolName, input),
       onEvent: (raw) => this.handleDriverEvent(raw),
@@ -200,11 +261,19 @@ export class AgentRuntime {
   private async handleCanUseTool(toolName: string, input: any): Promise<PermissionDecision> {
     // Phase 2 wires ApprovalService here; until then tools not covered by settings rules are allowed.
     if (!this.options.canUseTool) return { allow: true };
-    this.setStatus('waiting_input', { tool: toolName });
+    let waited = false;
+    const onPending = () => {
+      waited = true;
+      this.releaseSlot();
+      this.setStatus('waiting_input', { tool: toolName });
+    };
     try {
-      return await this.options.canUseTool(toolName, input);
+      return await this.options.canUseTool(toolName, input, onPending);
     } finally {
-      if (this.turnActive) this.setStatus('running');
+      if (waited && this.turnActive && !this.disposed) {
+        await this.acquireSlot().catch(() => undefined);
+        this.setStatus('running');
+      }
     }
   }
 
@@ -240,6 +309,7 @@ export class AgentRuntime {
     for (const evt of this.normalizer.normalize(raw)) {
       this.eventBus.emitEvent(evt);
       if (evt.type === 'agent.text.done' && !evt.payload.parentToolUseId) {
+        this.lastText = evt.payload.text;
         this.persistAssistantText(evt.payload.text);
       }
     }
@@ -291,17 +361,19 @@ export class AgentRuntime {
 
   private handleTurnResult(raw: any) {
     const u = raw.usage ?? {};
-    this.options.onTurnComplete?.({
+    const usage: TurnUsage = {
       inputTokens: u.input_tokens || 0,
       outputTokens: u.output_tokens || 0,
       cacheReadTokens: u.cache_read_input_tokens || 0,
       cacheCreationTokens: u.cache_creation_input_tokens || 0,
       numTurns: raw.num_turns || 0,
       isError: !!raw.is_error,
-    });
+      lastText: this.lastText,
+    };
 
     if (this.status === 'throttled' && raw.is_error) {
       this.turnActive = false;
+      this.releaseSlot();
       this.scheduleThrottleRetry();
       return;
     }
@@ -309,6 +381,8 @@ export class AgentRuntime {
     this.throttleRetries = 0;
     this.lastUserMessage = undefined;
     this.endTurn();
+    // After endTurn so listeners see an idle agent and can deliver the next message
+    this.options.onTurnComplete?.(usage);
   }
 
   /** Rate limited turn failed: retry the same message with backoff (PLAN.md 3.3). */
@@ -331,6 +405,7 @@ export class AgentRuntime {
 
   private endTurn() {
     this.turnActive = false;
+    this.releaseSlot();
     this.setStatus('idle');
     this.resetIdleTimer();
   }
@@ -355,9 +430,11 @@ export class AgentRuntime {
     }
 
     this.turnActive = false;
+    this.releaseSlot();
     this.clearIdleTimer();
     await this.disposeDriver();
     this.setStatus('error', { error });
+    this.options.onError?.(error);
   }
 
   /**
@@ -367,12 +444,21 @@ export class AgentRuntime {
   public async sendMessage(content: string, opts: { newTask?: boolean } = {}): Promise<void> {
     if (this.disposed) throw new Error('Agent runtime has been disposed');
     this.clearIdleTimer();
+
+    // A message during a turn is queued by the runtime itself (streaming input) and needs no new slot
+    if (this.turnActive && this.driver) {
+      await this.driver.sendMessage(content);
+      return;
+    }
+    // Claimed synchronously so concurrent callers see a busy agent while it waits for a slot
+    this.turnActive = true;
+    this.lastText = '';
     if (this.throttleTimer && content !== this.lastUserMessage) {
       clearTimeout(this.throttleTimer);
       this.throttleTimer = undefined;
     }
 
-    if (opts.newTask && this.freshContextPerTask && !this.turnActive) {
+    if (opts.newTask && this.freshContextPerTask) {
       await this.disposeDriver();
       this.options.sessionAgent.sdkSessionId = null;
       getDb()
@@ -382,12 +468,23 @@ export class AgentRuntime {
         .run();
     }
 
-    // Rebuilds the process after suspend / error / fresh context, resuming sdkSessionId.
-    await this.ensureDriver();
-    if (!this.driver) throw new Error('Agent runtime failed to start');
+    try {
+      // Rebuilds the process after suspend / error / fresh context, resuming sdkSessionId.
+      await this.ensureDriver();
+      if (!this.driver) throw new Error('Agent runtime failed to start');
+      await this.acquireSlot();
+    } catch (err) {
+      this.turnActive = false;
+      this.releaseSlot();
+      if (!this.disposed) this.setStatus('idle');
+      throw err;
+    }
+    if (this.disposed || !this.turnActive) {
+      this.releaseSlot();
+      return; // interrupted / disposed while queued
+    }
 
     this.lastUserMessage = content;
-    this.turnActive = true;
     this.setStatus('running');
     await this.driver.sendMessage(content);
   }
@@ -402,10 +499,32 @@ export class AgentRuntime {
         return;
       }
     }
+    if (this.turnActive && this.options.limiter?.isWaiting(this.options.sessionAgent.id)) {
+      // Still queued for a slot: drop the pending turn
+      this.options.limiter.cancel(this.options.sessionAgent.id, 'Interrupted');
+      this.endTurn();
+      this.options.onTurnComplete?.({
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        numTurns: 0,
+        isError: true,
+        lastText: '',
+      });
+      return;
+    }
     if (!this.driver || !this.turnActive) return;
     this.lastUserMessage = undefined;
     // The driver reports the end of the interrupted turn (result / crewtree.interrupted).
     await this.driver.interrupt();
+  }
+
+  /** Session model override (PLAN.md 7): applies from the next turn and keeps the context. */
+  public async setModelOverride(model: string | null): Promise<void> {
+    this.options.sessionAgent.modelOverride = model;
+    if (this.driver?.setModel) await this.driver.setModel(this.model);
+    else if (this.driver && !this.turnActive) await this.disposeDriver(); // restarted with resume on next message
   }
 
   public updateSettings(settings: { configGroups?: ConfigGroups; idleSuspendMinutes?: number }) {
@@ -442,6 +561,7 @@ export class AgentRuntime {
   public async dispose(): Promise<void> {
     this.disposed = true;
     this.turnActive = false;
+    this.options.limiter?.cancel(this.options.sessionAgent.id, 'Agent disposed');
     this.clearIdleTimer();
     if (this.throttleTimer) clearTimeout(this.throttleTimer);
     this.throttleTimer = undefined;

@@ -51,6 +51,7 @@ export const EVENT_TYPES = [
   'task.updated',
   'task.question',
   'message.created',
+  'message.updated',
   'usage.updated',
   'file.touched',
   'file.conflict',

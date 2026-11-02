@@ -77,7 +77,9 @@
     "unknownError": "Lỗi không xác định",
     "toolDetails": "chi tiết",
     "toolInput": "Đầu vào",
-    "toolOutput": "Kết quả"
+    "toolOutput": "Kết quả",
+    "queued": "đang chờ",
+    "interruptAndSend": "Ngắt & gửi"
   },
   "eventLog": {
     "title": "Nhật ký event trực tiếp",
@@ -115,5 +117,50 @@
     "deny": "Từ chối"
   },
   "settingsSaveFailed": "Không lưu được cài đặt.",
-  "retry": "Thử lại"
+  "retry": "Thử lại",
+  "tree": {
+    "task": "Task",
+    "queuedTasks_other": "{{count}} task đang chờ",
+    "spawnedBy": "do {{name}} tạo",
+    "addAgent": "Thêm agent",
+    "parent": "Cha",
+    "pickAgent": "Chọn agent…"
+  },
+  "tasks": {
+    "title": "Tasks",
+    "empty": "Chưa có task nào",
+    "fromUser": "Bạn → Supervisor",
+    "cancel": "Huỷ task"
+  },
+  "taskStatus": {
+    "queued": "đang chờ",
+    "running": "đang chạy",
+    "needs_input": "cần trả lời",
+    "done": "xong",
+    "failed": "lỗi",
+    "cancelled": "đã huỷ",
+    "interrupted": "bị gián đoạn"
+  },
+  "approvals": {
+    "title": "Yêu cầu chờ duyệt",
+    "outsideScope": "ngoài scope",
+    "pattern": "Mẫu luật",
+    "reason": "Lý do",
+    "reasonPlaceholder": "Lý do (gửi cho agent)",
+    "denyWithReason": "Từ chối kèm lý do…",
+    "saveRule": "Cho phép & lưu luật",
+    "notificationTitle": "{{agent}} cần duyệt quyền",
+    "notificationBody": "{{tool}} trong {{session}}"
+  },
+  "session": {
+    "pause": "Tạm dừng",
+    "resume": "Tiếp tục",
+    "stop": "Dừng",
+    "needsInput": "Cần bạn trả lời",
+    "answerHint": "Trả lời ngay trong ô chat bên dưới.",
+    "pausedBudget": "Tạm dừng: đã hết ngân sách token"
+  },
+  "notices": {
+    "supervisorCreated": "Đã tạo crewtree-supervisor với {{model}}"
+  }
 }

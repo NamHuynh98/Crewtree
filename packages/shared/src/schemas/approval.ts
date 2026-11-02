@@ -17,6 +17,11 @@ export const ApprovalSchema = z.object({
   rule: ApprovalRuleSchema.optional(),
   pattern: z.string().optional(),
   reason: z.string().optional(),
+  /** Why the request exists beyond the normal permission flow, e.g. `outside_scope` (PLAN.md 5) */
+  label: z.string().optional(),
+  /** Claude Code permission syntax offered for "Always allow", e.g. `Bash(npm test:*)` (PLAN.md 10) */
+  suggestedPattern: z.string().optional(),
+  taskId: z.string().optional(),
   createdAt: z.number().int(),
   decidedAt: z.number().int().optional(),
 });

@@ -144,27 +144,43 @@ function defaultHandlers(): Partial<OrchestratorHandlers> {
   };
 }
 
+export interface BoundTool {
+  name: keyof OrchestratorHandlers;
+  description: string;
+  schema: z.ZodObject<any>;
+  /** Validates (applying schema defaults) and runs the handler; errors become an `isError` result. */
+  run: (args: unknown) => Promise<ToolResult>;
+}
+
 /**
- * Creates an in-process MCP server per agent. The handlers close over the calling agent's
- * context, so the server can enforce tree permissions per sessionAgentId (PLAN.md 4.3).
+ * The orchestration tools an agent gets: all agents get the task protocol tools, delegating nodes also
+ * get the tree tools. Each handler closes over the caller's context, so the server checks permissions per
+ * sessionAgentId (PLAN.md 4.3). A tool is exposed only when its handler exists.
  */
+export function bindTools(ctx: AgentMcpContext, handlers: Partial<OrchestratorHandlers> = {}): BoundTool[] {
+  const resolved = { ...defaultHandlers(), ...handlers };
+  return TOOL_SPECS.filter((spec) => resolved[spec.name] && (!spec.delegateOnly || ctx.canDelegate)).map((spec) => ({
+    name: spec.name,
+    description: spec.description,
+    schema: spec.schema,
+    run: async (args: unknown) => {
+      try {
+        return await (resolved[spec.name] as Handler<any>)(spec.schema.parse(args ?? {}), ctx);
+      } catch (err: any) {
+        return { content: [{ type: 'text' as const, text: `Error: ${err?.message ?? String(err)}` }], isError: true };
+      }
+    },
+  }));
+}
+
+/** In-process MCP server per agent (SdkDriver). */
 export function createAgentMcpServer(
   ctx: AgentMcpContext,
   handlers: Partial<OrchestratorHandlers> = {}
 ): McpSdkServerConfigWithInstance {
-  const resolved = { ...defaultHandlers(), ...handlers };
-
-  const tools = TOOL_SPECS.filter((spec) => resolved[spec.name] && (!spec.delegateOnly || ctx.canDelegate)).map(
-    (spec) =>
-      tool(spec.name, spec.description, spec.schema.shape, async (args: any) => {
-        try {
-          return await (resolved[spec.name] as Handler<any>)(args, ctx);
-        } catch (err: any) {
-          return { content: [{ type: 'text' as const, text: `Error: ${err?.message ?? String(err)}` }], isError: true };
-        }
-      })
+  const tools = bindTools(ctx, handlers).map((bound) =>
+    tool(bound.name, bound.description, bound.schema.shape, (args: any) => bound.run(args))
   );
-
   const server = createSdkMcpServer({
     name: CREWTREE_MCP_SERVER_NAME,
     version: '1.0.0',

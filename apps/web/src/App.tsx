@@ -21,13 +21,17 @@ import {
   XCircle,
   Code2,
   Square,
+  Pause,
 } from 'lucide-react';
-import { Session, SessionAgent, AgentEvent } from '@crewtree/shared';
+import type { Approval, Session, SessionAgent, AgentEvent, Task } from '@crewtree/shared';
 import { getBoot, resolveTheme, saveUiSettings, BootSettings, ThemeSetting, LanguageSetting } from './lib/boot';
-import { StatusBadge, StatusDot, agentStatusKey, agentVisual, sessionVisual } from '@/components/StatusBadge';
+import { StatusBadge, StatusDot, sessionVisual } from '@/components/StatusBadge';
 import { Markdown } from '@/components/Markdown';
 import { ThemeMenu, LanguageMenu } from '@/components/HeaderMenus';
 import { ClaudeStatus, ClaudeStatusInfo } from '@/components/ClaudeStatus';
+import { AgentTree } from '@/components/workspace/AgentTree';
+import { TaskList } from '@/components/workspace/TaskList';
+import { ApprovalList, ApprovalDecisionInput } from '@/components/workspace/ApprovalList';
 import { Button } from '@/components/ui/button';
 
 interface ChatMessage {
@@ -41,6 +45,16 @@ interface ChatMessage {
   isStreaming?: boolean;
   /** Optimistic user message not yet confirmed by message.created */
   pending?: boolean;
+  messageId?: string;
+  /** Waiting for the agent to finish its turn (PLAN.md 4.3) */
+  queued?: boolean;
+}
+
+interface LibraryAgentInfo {
+  name: string;
+  scope: string;
+  description: string;
+  canDelegate: boolean;
 }
 
 type SessionListItem = Session & { activity?: 'running' | 'idle' };
@@ -56,7 +70,7 @@ function shortenPath(p: string, homeDir?: string): string {
   return homeDir && (p === homeDir || p.startsWith(homeDir + '/')) ? '~' + p.slice(homeDir.length) : p;
 }
 
-const BUSY_STATUSES = ['running', 'waiting_input', 'waiting_children'];
+const BUSY_STATUSES = ['running', 'queued', 'waiting_input', 'waiting_children', 'throttled'];
 
 interface UsageStats {
   inputTokens: number;
@@ -106,6 +120,16 @@ export function App() {
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   // Last persisted event id per session, used to replay missed events on reconnect
   const lastEventIdsRef = useRef<Record<string, number>>({});
+  // Phase 2: the tree, its tasks and approvals
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [sessionApprovals, setSessionApprovals] = useState<Approval[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [library, setLibrary] = useState<LibraryAgentInfo[]>([]);
+  const [addAgentName, setAddAgentName] = useState('');
+  const [addAgentParent, setAddAgentParent] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const supervisorIdRef = useRef<string | undefined>(undefined);
+  const sessionTitleRef = useRef<string>('');
 
   // Load server health & sessions
   const loadSessions = () => {
@@ -147,129 +171,201 @@ export function App() {
     return () => clearInterval(timer);
   }, [loadPendingApprovals]);
 
-  // Handle incoming live AgentEvents
-  // `history`: replaying persisted events — status and usage are already reflected in the loaded session
-  const handleAgentEvent = useCallback(
-    (event: AgentEvent, opts: { history?: boolean } = {}) => {
-      if (opts.history && event.type === 'agent.status') return;
-
-      if (event.type === 'message.created' && event.payload?.role === 'user') {
-        const text = event.payload.text ?? '';
-        setMessages((prev) => {
-          const pendingIdx = prev.findIndex((m) => m.pending && m.role === 'user' && m.content === text);
-          if (pendingIdx >= 0) {
-            return prev.map((m, i) => (i === pendingIdx ? { ...m, pending: false } : m));
+  // Global channel (PLAN.md 15.2): approvals of every session, resource notices
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let ws: WebSocket | undefined;
+    let closed = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const connect = () => {
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      ws.onmessage = (msg) => {
+        try {
+          const evt: AgentEvent = JSON.parse(msg.data);
+          if (evt.type?.startsWith('approval.')) loadPendingApprovals();
+          if (evt.type === 'resource.changed' && evt.payload?.action === 'created' && evt.payload?.model) {
+            setNotice(t('notices.supervisorCreated', { model: evt.payload.model }));
           }
-          return [...prev, { id: event.payload.messageId ?? nextKey('user'), role: 'user', content: text }];
-        });
-        return;
-      }
-
-      if (event.type.startsWith('approval.')) {
-        loadPendingApprovals();
-        return;
-      }
-
-      if (event.type === 'usage.updated' && event.payload?.isError) {
-        setMessages((prev) => [
-          ...prev,
-          { id: nextKey('ended'), role: 'system', content: '', i18nKey: 'chat.turnEnded' },
-        ]);
-      }
-
-      if (event.type === 'agent.status') {
-        const status = event.payload?.status;
-        setAgents((prev) => prev.map((a) => (a.id === event.sessionAgentId ? { ...a, status } : a)));
-        if (status === 'running') {
-          setIsStreaming(true);
-          setThrottledRetryMs(null);
+        } catch {
+          // ignore
         }
-        if (status === 'idle' || status === 'suspended') {
-          setIsStreaming(false);
-          setThrottledRetryMs(null);
-        }
-        if (status === 'throttled') {
-          setIsStreaming(false);
-          setThrottledRetryMs(event.payload?.retryAfterMs ?? 60000);
-        }
-        if (status === 'error') {
-          setIsStreaming(false);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: nextKey(),
-              role: 'system',
-              content: event.payload?.error ?? '',
-              i18nKey: 'chat.agentError',
-              i18nArgs: { error: event.payload?.error ?? '' },
-            },
-          ]);
-        }
-      }
+      };
+      ws.onclose = () => {
+        if (!closed) retry = setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (retry) clearTimeout(retry);
+      ws?.close();
+    };
+  }, [loadPendingApprovals, t]);
 
-      // Output of Claude Code's own subagents (Task tool) is not part of this agent's chat
-      if (event.payload?.parentToolUseId) return;
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
-      if (event.type === 'agent.text.delta') {
-        const deltaText = event.payload?.text || '';
-        setMessages((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-            return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + deltaText }];
-          } else {
-            return [...prev, { id: nextKey(), role: 'assistant', content: deltaText, isStreaming: true }];
+  // Tree, tasks, approvals and session state: events of every agent (live only; history comes from the API)
+  const handleTreeEvent = useCallback(
+    (event: AgentEvent) => {
+      const p = event.payload as any;
+      switch (event.type) {
+        case 'agent.status':
+          setAgents((prev) => prev.map((a) => (a.id === event.sessionAgentId ? { ...a, status: p.status } : a)));
+          break;
+        case 'agent.spawned':
+          setAgents((prev) => (prev.some((a) => a.id === p.agent.id) ? prev : [...prev, p.agent]));
+          break;
+        case 'agent.removed':
+          setAgents((prev) => prev.filter((a) => a.id !== p.agentId));
+          break;
+        case 'task.created':
+        case 'task.updated':
+          setTasks((prev) =>
+            prev.some((x) => x.id === p.id) ? prev.map((x) => (x.id === p.id ? p : x)) : [...prev, p]
+          );
+          break;
+        case 'approval.created':
+          setSessionApprovals((prev) => (prev.some((a) => a.id === p.id) ? prev : [...prev, p]));
+          loadPendingApprovals();
+          // Browser notification when the user is not looking (PLAN.md 10)
+          if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+            const agent = agentsRef.current.find((a) => a.id === p.sessionAgentId);
+            new Notification(t('approvals.notificationTitle', { agent: agent?.alias || agent?.agentName || '' }), {
+              body: t('approvals.notificationBody', { tool: p.tool, session: sessionTitleRef.current }),
+            });
           }
-        });
-      }
-
-      if (event.type === 'agent.text.done') {
-        // A text block is complete: finalize the streaming message, or add it if no deltas arrived
-        setMessages((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMsg, isStreaming: false, content: event.payload?.text || lastMsg.content },
-            ];
-          }
-          return [...prev, { id: nextKey('done'), role: 'assistant', content: event.payload?.text || '' }];
-        });
-      }
-
-      if (event.type === 'agent.tool.start') {
-        const { tool, toolUseId, input } = event.payload;
-        setMessages((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          const newTool = { tool, toolUseId, input };
-          if (lastMsg && lastMsg.role === 'assistant') {
-            return [...prev.slice(0, -1), { ...lastMsg, toolCalls: [...(lastMsg.toolCalls || []), newTool] }];
-          } else {
-            return [...prev, { id: nextKey(), role: 'assistant', content: '', toolCalls: [newTool] }];
-          }
-        });
-      }
-
-      if (event.type === 'agent.tool.end') {
-        const { toolUseId, output, isError } = event.payload;
-        setMessages((prev) =>
-          prev.map((m) => ({
-            ...m,
-            toolCalls: m.toolCalls?.map((tc) => (tc.toolUseId === toolUseId ? { ...tc, output, isError } : tc)),
-          }))
-        );
-      }
-
-      if (event.type === 'usage.updated' && !opts.history) {
-        setUsageStats((prev) => ({
-          inputTokens: prev.inputTokens + (event.payload?.inputTokens || 0),
-          outputTokens: prev.outputTokens + (event.payload?.outputTokens || 0),
-          cacheReadTokens: prev.cacheReadTokens + (event.payload?.cacheReadTokens || 0),
-          cacheCreationTokens: prev.cacheCreationTokens + (event.payload?.cacheCreationTokens || 0),
-        }));
+          break;
+        case 'approval.resolved':
+          setSessionApprovals((prev) => prev.filter((a) => a.id !== p.id));
+          loadPendingApprovals();
+          break;
+        case 'session.status':
+          setCurrentSession((prev) => (prev ? { ...prev, status: p.status } : prev));
+          break;
+        case 'usage.updated':
+          // Session total: every agent's turns (input + output, no cache reads)
+          setUsageStats((prev) => ({
+            inputTokens: prev.inputTokens + (p.inputTokens || 0),
+            outputTokens: prev.outputTokens + (p.outputTokens || 0),
+            cacheReadTokens: prev.cacheReadTokens + (p.cacheReadTokens || 0),
+            cacheCreationTokens: prev.cacheCreationTokens + (p.cacheCreationTokens || 0),
+          }));
+          break;
+        case 'message.updated':
+          setMessages((prev) =>
+            prev.map((m) => (m.messageId === p.messageId ? { ...m, queued: p.delivery === 'queued' } : m))
+          );
+          break;
       }
     },
-    [loadPendingApprovals]
+    [loadPendingApprovals, t]
   );
+
+  // Main chat: the Supervisor's own events
+  // `history`: replaying persisted events — status and usage are already reflected in the loaded session
+  const handleAgentEvent = useCallback((event: AgentEvent, opts: { history?: boolean } = {}) => {
+    if (opts.history && event.type === 'agent.status') return;
+
+    if (event.type === 'message.created' && event.payload?.role === 'user') {
+      const text = event.payload.text ?? '';
+      const messageId = event.payload.messageId as string | undefined;
+      const queued = event.payload.delivery === 'queued' && !opts.history;
+      setMessages((prev) => {
+        const pendingIdx = prev.findIndex((m) => m.pending && m.role === 'user' && m.content === text);
+        if (pendingIdx >= 0) {
+          return prev.map((m, i) => (i === pendingIdx ? { ...m, pending: false, messageId, queued } : m));
+        }
+        return [...prev, { id: messageId ?? nextKey('user'), messageId, role: 'user', content: text, queued }];
+      });
+      return;
+    }
+
+    if (event.type === 'usage.updated' && event.payload?.isError) {
+      setMessages((prev) => [
+        ...prev,
+        { id: nextKey('ended'), role: 'system', content: '', i18nKey: 'chat.turnEnded' },
+      ]);
+    }
+
+    if (event.type === 'agent.status') {
+      const status = event.payload?.status;
+      setIsStreaming(BUSY_STATUSES.includes(status));
+      setThrottledRetryMs(status === 'throttled' ? (event.payload?.retryAfterMs ?? 60000) : null);
+      if (status === 'error') {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextKey(),
+            role: 'system',
+            content: event.payload?.error ?? '',
+            i18nKey: 'chat.agentError',
+            i18nArgs: { error: event.payload?.error ?? '' },
+          },
+        ]);
+      }
+    }
+
+    // Output of Claude Code's own subagents (Task tool) is not part of this agent's chat
+    if (event.payload?.parentToolUseId) return;
+
+    if (event.type === 'agent.text.delta') {
+      const deltaText = event.payload?.text || '';
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + deltaText }];
+        } else {
+          return [...prev, { id: nextKey(), role: 'assistant', content: deltaText, isStreaming: true }];
+        }
+      });
+    }
+
+    if (event.type === 'agent.text.done') {
+      // A text block is complete: finalize the streaming message, or add it if no deltas arrived
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+          return [
+            ...prev.slice(0, -1),
+            { ...lastMsg, isStreaming: false, content: event.payload?.text || lastMsg.content },
+          ];
+        }
+        return [...prev, { id: nextKey('done'), role: 'assistant', content: event.payload?.text || '' }];
+      });
+    }
+
+    if (event.type === 'agent.tool.start') {
+      const { tool, toolUseId, input } = event.payload;
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        const newTool = { tool, toolUseId, input };
+        if (lastMsg && lastMsg.role === 'assistant') {
+          return [...prev.slice(0, -1), { ...lastMsg, toolCalls: [...(lastMsg.toolCalls || []), newTool] }];
+        } else {
+          return [...prev, { id: nextKey(), role: 'assistant', content: '', toolCalls: [newTool] }];
+        }
+      });
+    }
+
+    if (event.type === 'agent.tool.end') {
+      const { toolUseId, output, isError } = event.payload;
+      setMessages((prev) =>
+        prev.map((m) => ({
+          ...m,
+          toolCalls: m.toolCalls?.map((tc) => (tc.toolUseId === toolUseId ? { ...tc, output, isError } : tc)),
+        }))
+      );
+    }
+  }, []);
+
+  const agentsRef = useRef<SessionAgent[]>([]);
+  useEffect(() => {
+    agentsRef.current = agents;
+  }, [agents]);
 
   // When a session is selected, load its details & connect WS
   useEffect(() => {
@@ -280,6 +376,9 @@ export function App() {
       setUsageStats({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
       setThrottledRetryMs(null);
       setRawEvents([]);
+      setTasks([]);
+      setSessionApprovals([]);
+      supervisorIdRef.current = undefined;
       return;
     }
 
@@ -306,7 +405,8 @@ export function App() {
           if (!agentEvent.sessionId) return; // connected / pong
           if (agentEvent.id) lastEventIdsRef.current[sessionId] = agentEvent.id;
           setRawEvents((prev) => [agentEvent, ...prev.slice(0, 49)]);
-          handleAgentEvent(agentEvent);
+          handleTreeEvent(agentEvent);
+          if (agentEvent.sessionAgentId === supervisorIdRef.current) handleAgentEvent(agentEvent);
         } catch (err) {
           console.error('Failed to parse WS event', err);
         }
@@ -327,8 +427,12 @@ export function App() {
           fetch(`/api/sessions/${sessionId}/events?after=0&limit=2000`).then((res) => res.json()),
         ]);
         if (closedByEffect) return;
+        supervisorIdRef.current = detail.session.supervisorAgentId;
+        sessionTitleRef.current = detail.session.title;
         setCurrentSession(detail.session);
         setAgents(detail.agents);
+        setTasks(detail.tasks ?? []);
+        setSessionApprovals(detail.approvals ?? []);
         setMessages([]);
         setUsageStats({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
         for (const evt of events as AgentEvent[]) {
@@ -337,7 +441,7 @@ export function App() {
           if (evt.id) lastEventIdsRef.current[sessionId] = evt.id;
         }
         const supervisor = (detail.agents as SessionAgent[]).find((a) => a.id === detail.session.supervisorAgentId);
-        setIsStreaming(supervisor?.status === 'running' || supervisor?.status === 'waiting_input');
+        setIsStreaming(BUSY_STATUSES.includes(supervisor?.status ?? 'idle'));
       } catch (err) {
         console.error('Failed to load session', err);
       }
@@ -350,7 +454,16 @@ export function App() {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [selectedSessionId, handleAgentEvent]);
+  }, [selectedSessionId, handleAgentEvent, handleTreeEvent]);
+
+  // Library agents for "Add agent"
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    fetch('/api/resources/agents')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows) => setLibrary(Array.isArray(rows) ? rows : []))
+      .catch(() => undefined);
+  }, [selectedSessionId]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -421,30 +534,78 @@ export function App() {
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMessage.trim() || !selectedSessionId || isStreaming) return;
+  /** Messages to a busy Supervisor are queued; `interrupt` stops its turn first (PLAN.md 4.3). */
+  const sendMessage = async (mode: 'queue' | 'interrupt') => {
+    if (!inputMessage.trim() || !selectedSessionId) return;
+    if ('Notification' in window && Notification.permission === 'default') void Notification.requestPermission();
 
     const userText = inputMessage.trim();
     setInputMessage('');
+    setActionError(null);
     setMessages((prev) => [...prev, { id: nextKey(), role: 'user', content: userText, pending: true }]);
-    setIsStreaming(true);
-
     try {
-      await fetch(`/api/sessions/${selectedSessionId}/messages`, {
+      const res = await fetch(`/api/sessions/${selectedSessionId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: userText }),
+        body: JSON.stringify({ content: userText, mode }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.error ?? res.statusText);
+        setMessages((prev) => prev.filter((m) => !(m.pending && m.content === userText)));
+      }
     } catch (err) {
       console.error('Failed to send message', err);
-      setIsStreaming(false);
     }
+  };
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    void sendMessage('queue');
+  };
+
+  const postAction = async (url: string, body?: unknown): Promise<string | null> => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    return data.error ?? res.statusText;
+  };
+
+  const decideApproval = (id: string, decision: ApprovalDecisionInput) => postAction(`/api/approvals/${id}`, decision);
+
+  const sessionAction = async (action: 'pause' | 'resume' | 'stop') => {
+    if (!selectedSessionId) return;
+    setActionError(await postAction(`/api/sessions/${selectedSessionId}/${action}`));
+  };
+
+  const cancelTask = async (task: Task) => {
+    if (!selectedSessionId) return;
+    setActionError(
+      await postAction(`/api/sessions/${selectedSessionId}/tasks/${task.id}/cancel`, {
+        reason: 'Cancelled by the user',
+      })
+    );
+  };
+
+  const addAgent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSessionId || !addAgentName) return;
+    const error = await postAction(`/api/sessions/${selectedSessionId}/agents`, {
+      agentName: addAgentName,
+      parentId: addAgentParent || undefined,
+    });
+    setActionError(error);
+    if (!error) setAddAgentName('');
   };
 
   const supervisor = agents.find((a) => a.id === currentSession?.supervisorAgentId);
   const supervisorName = supervisor?.alias || supervisor?.agentName || 'Supervisor';
   const workspaceBusy = agents.some((a) => BUSY_STATUSES.includes(a.status ?? 'idle'));
+  const rootQuestion = tasks.find((task) => task.isRoot && task.status === 'needs_input');
   const navItemClass =
     'flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition';
 
@@ -692,6 +853,31 @@ export function App() {
                     {t('workspace.rateLimited', { seconds: Math.ceil(throttledRetryMs / 1000) })}
                   </span>
                 )}
+                {currentSession?.status === 'paused' ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px]"
+                    onClick={() => sessionAction('resume')}
+                  >
+                    <Play />
+                    {t('session.resume')}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px]"
+                    onClick={() => sessionAction('pause')}
+                  >
+                    <Pause />
+                    {t('session.pause')}
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => sessionAction('stop')}>
+                  <Square />
+                  {t('session.stop')}
+                </Button>
                 <Button
                   size="sm"
                   variant={showRawEventLog ? 'secondary' : 'outline'}
@@ -710,28 +896,50 @@ export function App() {
                 <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase mb-3">
                   {t('workspace.agentTree')}
                 </div>
-                <div className="space-y-3">
-                  {agents.map((agent) => (
-                    <div
-                      key={agent.id}
-                      className={`p-3 rounded-lg border border-border bg-card shadow-sm ${
-                        agent.status === 'suspended' ? 'opacity-70' : ''
-                      }`}
+                <AgentTree agents={agents} tasks={tasks} supervisorId={currentSession?.supervisorAgentId} />
+
+                <form onSubmit={addAgent} className="mt-3 space-y-1.5">
+                  <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                    {t('tree.addAgent')}
+                  </div>
+                  <select
+                    value={addAgentName}
+                    onChange={(e) => setAddAgentName(e.target.value)}
+                    className="w-full px-2 py-1 text-[11px] rounded-md border border-input bg-background"
+                    aria-label={t('tree.addAgent')}
+                  >
+                    <option value="">{t('tree.pickAgent')}</option>
+                    {library
+                      .filter((a) => a.name !== supervisor?.agentName)
+                      .map((a) => (
+                        <option key={a.name} value={a.name} title={a.description}>
+                          {a.name} ({t(`scope.${a.scope}`)})
+                        </option>
+                      ))}
+                  </select>
+                  <div className="flex gap-1.5">
+                    <select
+                      value={addAgentParent}
+                      onChange={(e) => setAddAgentParent(e.target.value)}
+                      className="flex-1 min-w-0 px-2 py-1 text-[11px] rounded-md border border-input bg-background"
+                      aria-label={t('tree.parent')}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Bot className="w-4 h-4 text-primary shrink-0" />
-                          <span className="font-semibold text-xs truncate">{agent.alias || agent.agentName}</span>
-                        </div>
-                        <StatusBadge visual={agentVisual(agent.status)} label={t(agentStatusKey(agent.status))} />
-                      </div>
-                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="rounded border border-border px-1.5 py-px">{t(`scope.${agent.scope}`)}</span>
-                        {agent.status === 'suspended' && <span>{t('workspace.suspendedHint')}</span>}
-                      </div>
-                    </div>
-                  ))}
+                      {agents.map((a) => (
+                        <option key={a.id} value={a.id === currentSession?.supervisorAgentId ? '' : a.id}>
+                          {t('tree.parent')}: {a.alias || a.agentName}
+                        </option>
+                      ))}
+                    </select>
+                    <Button type="submit" size="sm" className="h-7 text-[11px]" disabled={!addAgentName}>
+                      <Plus />
+                    </Button>
+                  </div>
+                </form>
+
+                <div className="mt-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase mb-2">
+                  {t('tasks.title')}
                 </div>
+                <TaskList tasks={tasks} agents={agents} onCancel={cancelTask} />
               </div>
 
               {/* Chat & Stream Pane */}
@@ -767,6 +975,11 @@ export function App() {
                               ) : (
                                 <div className="whitespace-pre-wrap">{m.content}</div>
                               ))}
+                            {m.queued && (
+                              <div className="mt-1 text-[10px] uppercase tracking-wider opacity-75">
+                                {t('chat.queued')}
+                              </div>
+                            )}
                             {m.isStreaming && (
                               <span className="inline-block w-1.5 h-3.5 bg-primary rounded-sm ml-0.5 animate-pulse" />
                             )}
@@ -839,6 +1052,30 @@ export function App() {
                   <div ref={chatBottomRef} />
                 </div>
 
+                {(sessionApprovals.length > 0 || rootQuestion || actionError) && (
+                  <div className="border-t border-border bg-card/60 p-3 space-y-2 max-h-[45%] overflow-y-auto">
+                    {actionError && <p className="text-[11px] text-red-600 dark:text-red-400">{actionError}</p>}
+                    {rootQuestion && (
+                      <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/20 p-2.5 text-xs">
+                        <div className="font-semibold flex items-center gap-1.5">
+                          <span className="text-amber-500">⚑</span>
+                          {t('session.needsInput')}
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap">{rootQuestion.question}</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground">{t('session.answerHint')}</p>
+                      </div>
+                    )}
+                    {sessionApprovals.length > 0 && (
+                      <>
+                        <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                          {t('approvals.title')}
+                        </div>
+                        <ApprovalList approvals={sessionApprovals} agents={agents} onDecide={decideApproval} />
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {/* Input Bar (the shared Composer of UI-WIREFRAMES 3 arrives in Phase 4) */}
                 <form
                   onSubmit={handleSendMessage}
@@ -849,30 +1086,40 @@ export function App() {
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
                     placeholder={t('chat.placeholder', { name: supervisorName })}
-                    disabled={isStreaming || throttledRetryMs !== null}
                     className="flex-1 px-3 py-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                   />
-                  {isStreaming || throttledRetryMs !== null ? (
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="destructive"
-                      onClick={handleInterrupt}
-                      title={t('chat.interrupt')}
-                      aria-label={t('chat.interrupt')}
-                    >
-                      <Square />
-                    </Button>
-                  ) : (
-                    <Button
-                      type="submit"
-                      size="icon"
-                      disabled={!inputMessage.trim()}
-                      title={t('chat.send')}
-                      aria-label={t('chat.send')}
-                    >
-                      <Send />
-                    </Button>
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={!inputMessage.trim()}
+                    title={t('chat.send')}
+                    aria-label={t('chat.send')}
+                  >
+                    <Send />
+                  </Button>
+                  {isStreaming && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-9 text-[11px]"
+                        disabled={!inputMessage.trim()}
+                        onClick={() => void sendMessage('interrupt')}
+                      >
+                        {t('chat.interruptAndSend')}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="destructive"
+                        onClick={handleInterrupt}
+                        title={t('chat.interrupt')}
+                        aria-label={t('chat.interrupt')}
+                      >
+                        <Square />
+                      </Button>
+                    </>
                   )}
                 </form>
               </div>
@@ -911,6 +1158,11 @@ export function App() {
           </div>
         )}
       </div>
+      {notice && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 text-xs bg-foreground text-background rounded-lg px-3 py-2 shadow-lg">
+          {notice}
+        </div>
+      )}
       {saveError && (
         <div className="fixed bottom-4 right-4 z-50 flex items-center gap-3 text-xs bg-destructive text-destructive-foreground rounded-lg px-3 py-2 shadow-lg">
           <span>{t('settingsSaveFailed')}</span>

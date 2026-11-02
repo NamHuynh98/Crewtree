@@ -78,7 +78,9 @@
     "unknownError": "Unknown error",
     "toolDetails": "details",
     "toolInput": "Input",
-    "toolOutput": "Output"
+    "toolOutput": "Output",
+    "queued": "queued",
+    "interruptAndSend": "Interrupt & send"
   },
   "eventLog": {
     "title": "Live event log",
@@ -117,5 +119,51 @@
     "deny": "Deny"
   },
   "settingsSaveFailed": "Couldn't save settings.",
-  "retry": "Retry"
+  "retry": "Retry",
+  "tree": {
+    "task": "Task",
+    "queuedTasks_one": "{{count}} queued task",
+    "queuedTasks_other": "{{count}} queued tasks",
+    "spawnedBy": "spawned by {{name}}",
+    "addAgent": "Add agent",
+    "parent": "Parent",
+    "pickAgent": "Agent…"
+  },
+  "tasks": {
+    "title": "Tasks",
+    "empty": "No tasks yet",
+    "fromUser": "You → Supervisor",
+    "cancel": "Cancel task"
+  },
+  "taskStatus": {
+    "queued": "queued",
+    "running": "running",
+    "needs_input": "needs input",
+    "done": "done",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "interrupted": "interrupted"
+  },
+  "approvals": {
+    "title": "Pending approvals",
+    "outsideScope": "outside scope",
+    "pattern": "Rule pattern",
+    "reason": "Reason",
+    "reasonPlaceholder": "Reason (sent to the agent)",
+    "denyWithReason": "Deny with reason…",
+    "saveRule": "Allow & save rule",
+    "notificationTitle": "{{agent}} needs approval",
+    "notificationBody": "{{tool}} in {{session}}"
+  },
+  "session": {
+    "pause": "Pause",
+    "resume": "Resume",
+    "stop": "Stop",
+    "needsInput": "Needs your input",
+    "answerHint": "Reply in the chat below to answer.",
+    "pausedBudget": "Paused: token budget reached"
+  },
+  "notices": {
+    "supervisorCreated": "Created crewtree-supervisor with {{model}}"
+  }
 }

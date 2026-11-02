@@ -28,12 +28,14 @@
     "fast-glob": "^3.3.3",
     "fastify": "^5.2.1",
     "nanoid": "^5.1.0",
+    "picomatch": "^4.0.7",
     "yaml": "^2.9.1",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.13.4",
+    "@types/picomatch": "^3.0.2",
     "drizzle-kit": "^0.30.4",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",

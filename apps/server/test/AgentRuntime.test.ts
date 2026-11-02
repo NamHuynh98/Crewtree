@@ -251,7 +251,7 @@ describe('AgentRuntime', () => {
   });
 
   it('interrupt ends the turn', async () => {
-    const { runtime } = makeRuntime(makeAgent(), { scenario: () => [] });
+    const { runtime } = makeRuntime(makeAgent(), { scenario: () => new Promise<void>(() => {}) });
     await runtime.start();
     await runtime.sendMessage('long task');
     expect(runtime.getStatus()).toBe('running');
