@@ -78,9 +78,25 @@ export function installSdk(bundleDir: string) {
     );
 }
 
-/** tar handles .tar.gz everywhere and .zip on Windows 10+ (bsdtar); no shell involved. */
+/** tar for .tar.gz, Expand-Archive for .zip on Windows; no shell involved. */
 export function extract(archive: string, into: string) {
   fs.mkdirSync(into, { recursive: true });
+  if (archive.endsWith('.zip') && isWindows) {
+    // Same extractor as install.ps1 (bsdtar is unreliable with large zips on Windows)
+    const quote = (p: string) => `'${p.replace(/'/g, "''")}'`;
+    const res = spawnSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(into)} -Force`,
+      ],
+      { stdio: 'pipe' }
+    );
+    if (res.status !== 0) throw new Error(`Extracting failed: ${res.stderr?.toString().trim() || res.error?.message}`);
+    return;
+  }
   const args = archive.endsWith('.zip') ? ['-xf', archive, '-C', into] : ['-xzf', archive, '-C', into];
   const res = spawnSync('tar', args, { stdio: 'pipe' });
   if (res.status !== 0) throw new Error(`Extracting failed: ${res.stderr?.toString().trim() || res.error?.message}`);

@@ -203,7 +203,19 @@ fs.writeFileSync(
 log('Archiving');
 const archive = path.join(outRoot, `${name}.${isWindows ? 'zip' : 'tar.gz'}`);
 fs.rmSync(archive, { force: true });
-if (isWindows) run('tar', ['-a', '-cf', archive, '-C', outRoot, name], { shell: false });
+// Windows' bundled bsdtar crashes on large zips: PowerShell 7 writes portable entries (forward slashes)
+if (isWindows)
+  run(
+    'pwsh',
+    [
+      '-NoProfile',
+      '-Command',
+      `Compress-Archive -Path '${out}' -DestinationPath '${archive}' -CompressionLevel Optimal`,
+    ],
+    {
+      shell: false,
+    }
+  );
 else run('tar', ['-czf', archive, '-C', outRoot, name], { shell: false });
 
 // SHA256SUMS of every archive in dist-release (the release job merges the platforms' files)
