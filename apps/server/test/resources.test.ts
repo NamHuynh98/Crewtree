@@ -16,6 +16,7 @@ import { encodeResourceId } from '../src/resources/ids.js';
 import { MASK } from '../src/resources/secrets.js';
 import { createServer } from '../src/index.js';
 import { createSessionCookie } from '../src/auth.js';
+import { normalizePath } from '../src/paths.js';
 import { recordEvents, waitFor } from './helpers/tree.js';
 
 const claude = process.env.CLAUDE_CONFIG_DIR!;
@@ -340,9 +341,10 @@ describe('resource API (PLAN.md 15.1)', () => {
     const other = fs.mkdtempSync(path.join(os.tmpdir(), 'crewtree-res-other-'));
     write(path.join(other, '.claude', 'agents', 'only-here.md'), agentMd('only-here'));
     const res = await call('POST', '/api/projects/open', { path: other });
-    expect(res.json().current.path).toBe(other);
+    // The API reports forward-slash paths on every platform
+    expect(res.json().current.path).toBe(normalizePath(other));
     expect(scanner.list('agent').some((a) => a.name === 'only-here')).toBe(true);
-    expect((await call('GET', '/api/projects')).json().recent.map((p: any) => p.path)).toContain(other);
+    expect((await call('GET', '/api/projects')).json().recent.map((p: any) => p.path)).toContain(normalizePath(other));
     expect((await call('POST', '/api/projects/open', { path: '/does/not/exist' })).statusCode).toBe(404);
     ProjectService.getInstance().open(project);
   });
