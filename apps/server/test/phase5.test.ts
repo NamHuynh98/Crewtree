@@ -167,5 +167,6 @@ describe('Phase 5 API', () => {
     const processes = (await get(`/api/sessions/${sessionId}/processes`)).json();
     expect(processes).toHaveProperty('running');
     expect(processes).toHaveProperty('suspended');
-  });
+    // PowerShell process listing and git take a few seconds on Windows runners
+  }, 30_000);
 });

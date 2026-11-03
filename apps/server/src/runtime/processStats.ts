@@ -36,11 +36,20 @@ async function listProcesses(): Promise<Proc[]> {
     .map(([pid, ppid, rssKb]) => ({ pid, ppid, rssBytes: rssKb * 1024 }));
 }
 
+let cache: { at: number; value: Promise<{ count: number; rssBytes: number } | null> } | null = null;
+/** Listing processes is slow on Windows (PowerShell): share one result for a few seconds. */
+const CACHE_MS = 4000;
+
 /**
  * Memory of the Claude Code processes Crewtree started: every descendant of this server process
  * (PLAN.md 21, Session settings "Processes … RAM"). Best effort; null when the OS query fails.
  */
-export async function childProcessStats(): Promise<{ count: number; rssBytes: number } | null> {
+export function childProcessStats(): Promise<{ count: number; rssBytes: number } | null> {
+  if (!cache || Date.now() - cache.at > CACHE_MS) cache = { at: Date.now(), value: computeStats() };
+  return cache.value;
+}
+
+async function computeStats(): Promise<{ count: number; rssBytes: number } | null> {
   try {
     const procs = await listProcesses();
     const children = new Map<number, Proc[]>();
