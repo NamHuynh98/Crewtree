@@ -9,3 +9,4 @@ export * from './schemas/approval.js';
 export * from './schemas/resource.js';
 export * from './schemas/settings.js';
 export * from './schemas/tools.js';
+export * from './release.js';

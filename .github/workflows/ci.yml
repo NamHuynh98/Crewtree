@@ -41,6 +41,10 @@ jobs:
       - name: i18n keys
         run: pnpm i18n:check
 
+      # Production dependencies must use an allowed license (PLAN.md 21.3)
+      - name: Dependency licenses
+        run: node scripts/check-licenses.mjs
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -49,3 +53,40 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  # Leaked secrets anywhere in the history (PLAN.md 21.3)
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Every commit of a pull request is signed off (DCO, see CONTRIBUTING.md)
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Signed-off-by on every commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            author=$(git log -1 --format='%an <%ae>' "$sha")
+            if ! git log -1 --format='%B' "$sha" | grep -qiF "Signed-off-by: $author"; then
+              echo "::error::$(git log -1 --format='%h %s' "$sha") is not signed off by $author"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Sign off with: git rebase --signoff $BASE && git push --force-with-lease"
+            exit 1
+          fi

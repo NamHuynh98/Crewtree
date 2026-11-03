@@ -119,6 +119,22 @@ export function SettingsPage() {
                 </p>
               </section>
               <section className="space-y-3">
+                <div className={section}>{t('settingsPage.updates')}</div>
+                <label className={row}>
+                  <span className={label}>{t('settingsPage.checkUpdates')}</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.update.check}
+                    onChange={(e) => {
+                      void patch({ update: { check: e.target.checked } }).then(() =>
+                        queryClient.invalidateQueries({ queryKey: ['version'] })
+                      );
+                    }}
+                  />
+                  <span className="text-[11px] text-muted-foreground">{t('settingsPage.checkUpdatesHint')}</span>
+                </label>
+              </section>
+              <section className="space-y-3">
                 <div className={section}>{t('settingsPage.appearance')}</div>
                 <div className={row}>
                   <span className={label}>{t('settingsPage.theme')}</span>

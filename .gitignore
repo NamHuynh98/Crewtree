@@ -44,3 +44,4 @@ test-results/
 
 # TypeScript incremental build info
 *.tsbuildinfo
+dist-release/

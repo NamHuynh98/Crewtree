@@ -1,0 +1,21 @@
+Crewtree
+Copyright 2026 Huỳnh Nam
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Forks must keep this NOTICE file, state their changes, and must not use the
+Crewtree name or logo (see TRADEMARKS.md).
+
+Third-party software
+--------------------
+Release bundles include open-source packages under their own licenses. The full
+list with license texts is in THIRD_PARTY_LICENSES.md inside each release
+archive; the licenses that are not Apache-2.0 or MIT are summarized in
+licenses/README.md.
+
+Not included
+------------
+The Claude Agent SDK (@anthropic-ai/claude-agent-sdk) and Claude Code are
+proprietary software of Anthropic PBC and are NOT distributed with Crewtree.
+The installer downloads the SDK from the npm registry onto your machine, where
+its use is subject to Anthropic's terms:
+https://code.claude.com/docs/en/legal-and-compliance

@@ -1,0 +1,147 @@
+# Release pipeline (PLAN.md 16.5, 21.3): push a tag v* to build every platform, smoke-test the installers on
+# each runner, then publish the archives, SHA256SUMS and installers with build provenance attestations.
+# Run it by hand (workflow_dispatch) to build and test without publishing.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.2.0-rc.1); nothing is published'
+        required: true
+        default: '0.0.0-dev'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: windows-latest
+            target: win32-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Pack
+        run: node scripts/pack.mjs --version ${{ env.VERSION }}
+
+      # Install from the local archive with the real installer, then start, query and stop the server
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CREWTREE_SKIP_CLAUDE_CHECK: '1'
+          CREWTREE_NO_UPDATE_CHECK: '1'
+          NO_COLOR: '1'
+        run: |
+          set -euo pipefail
+          archive=$(ls dist-release/crewtree-*-${{ matrix.target }}.tar.gz)
+          CREWTREE_ARCHIVE="$PWD/$archive" sh scripts/install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          crewtree --version
+          mkdir -p "$RUNNER_TEMP/project" && cd "$RUNNER_TEMP/project"
+          crewtree --no-open
+          crewtree status
+          port=$(node -p "require(process.env.HOME + '/.crewtree/config.json').port")
+          curl -fsS -H "Host: 127.0.0.1:$port" "http://127.0.0.1:$port/" | grep -q '<div id="root">'
+          crewtree doctor || true
+          crewtree stop
+          ! crewtree status
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CREWTREE_SKIP_CLAUDE_CHECK: '1'
+          CREWTREE_NO_UPDATE_CHECK: '1'
+          NO_COLOR: '1'
+        run: |
+          $archive = (Get-ChildItem dist-release -Filter 'crewtree-*-${{ matrix.target }}.zip').FullName
+          $env:CREWTREE_ARCHIVE = $archive
+          ./scripts/install.ps1
+          $crewtree = Join-Path $env:USERPROFILE '.crewtree\bin\crewtree.cmd'
+          & $crewtree --version
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\project" | Out-Null
+          Set-Location "$env:RUNNER_TEMP\project"
+          & $crewtree --no-open
+          if ($LASTEXITCODE -ne 0) { Get-Content "$env:USERPROFILE\.crewtree\logs\server.log" -ErrorAction SilentlyContinue; exit 1 }
+          & $crewtree status
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $port = (Get-Content "$env:USERPROFILE\.crewtree\config.json" | ConvertFrom-Json).port
+          $page = Invoke-WebRequest -UseBasicParsing -Headers @{ Host = "127.0.0.1:$port" } "http://127.0.0.1:$port/"
+          if ($page.Content -notmatch '<div id="root">') { throw 'Web UI not served' }
+          & $crewtree doctor
+          & $crewtree stop
+          & $crewtree status
+          if ($LASTEXITCODE -eq 0) { throw 'Server still running after stop' }
+          $global:LASTEXITCODE = 0
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: crewtree-${{ matrix.target }}
+          path: |
+            dist-release/*.tar.gz
+            dist-release/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cp scripts/install.sh scripts/install.ps1 out/
+          cd out && sha256sum crewtree-* > SHA256SUMS && cat SHA256SUMS
+
+      - name: Build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            out/crewtree-*
+            out/SHA256SUMS
+            out/install.sh
+            out/install.ps1
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags="--generate-notes --verify-tag"
+          case "$TAG" in *-*) flags="$flags --prerelease" ;; esac
+          gh release create "$TAG" out/* --title "Crewtree $TAG" $flags

@@ -852,15 +852,15 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 - [x] Hiển thị token/turn, empty states, theme tối, Ctrl+K command palette
 
 ### Phase 7 — CLI, phát hành và cập nhật (7–8 ngày, gồm Windows)
-- [ ] `apps/cli`: open/stop/status/logs/doctor, daemon, pid, health, `POST /api/shutdown` + token
-- [ ] Server phục vụ web build, chọn port
-- [ ] `scripts/pack.ts` + `release.yml` (ma trận macOS + Windows, `SHA256SUMS`, upload Release)
-- [ ] `install.sh` POSIX (phát hiện nền tảng, checksum, thư mục theo version, `current`, PATH, biến môi trường)
-- [ ] `crewtree update` / `--check` / `--pre` / `rollback`: sao lưu DB, migration, xử lý session đang chạy, giữ 2 bản
-- [ ] Thông báo bản mới: CLI (cache 1 lần/ngày) và banner web; setting `update.check`
-- [ ] **Windows:** `install.ps1` (PowerShell, checksum, PATH của user, `crewtree.cmd`, junction `current`), Task Scheduler cho autostart, `doctor` kiểm tra Git Bash, test cài/cập nhật/rollback trên Windows sạch
-- [ ] `autostart` (launchd, Task Scheduler), `uninstall`
-- [ ] License và supply chain (mục 21): `LICENSE`, `NOTICE`, `TRADEMARKS.md`, `CONTRIBUTING.md` (DCO), `SECURITY.md`, `licenses/`; CI kiểm tra license dependency, gitleaks, DCO; `release.yml` thêm build provenance attestation
+- [x] `apps/cli`: open/stop/status/logs/doctor, daemon, pid, health, `POST /api/shutdown` + token
+- [x] Server phục vụ web build, chọn port
+- [ ] `scripts/pack.ts` + `release.yml` (ma trận macOS + Windows, `SHA256SUMS`, upload Release) — đã viết; chờ chạy `release.yml` trên GitHub Actions
+- [x] `install.sh` POSIX (phát hiện nền tảng, checksum, thư mục theo version, `current`, PATH, biến môi trường)
+- [x] `crewtree update` / `--check` / `--pre` / `rollback`: sao lưu DB, migration, xử lý session đang chạy, giữ 2 bản
+- [x] Thông báo bản mới: CLI (cache 1 lần/ngày) và banner web; setting `update.check`
+- [ ] **Windows:** `install.ps1` (PowerShell, checksum, PATH của user, `crewtree.cmd`, junction `current`), Task Scheduler cho autostart, `doctor` kiểm tra Git Bash, test cài/cập nhật/rollback trên Windows sạch — đã viết; chờ test trên Windows (job smoke test của `release.yml`)
+- [ ] `autostart` (launchd, Task Scheduler), `uninstall` — `uninstall` đã test; `autostart` chưa chạy thật
+- [x] License và supply chain (mục 21): `LICENSE`, `NOTICE`, `TRADEMARKS.md`, `CONTRIBUTING.md` (DCO), `SECURITY.md`, `licenses/`; CI kiểm tra license dependency, gitleaks, DCO; `release.yml` thêm build provenance attestation
 
 ### Phase 8 — Mở rộng
 - Linux và WSL: `install.sh` cho Linux, build `linux-x64`/`linux-arm64`, systemd user cho autostart, CI thêm `ubuntu-latest`.

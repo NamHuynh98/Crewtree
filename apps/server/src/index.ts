@@ -41,7 +41,9 @@ import { ensureDefaultSupervisor } from './resources/agents/defaultSupervisor.js
 import { getCurrentProjectPath } from './projects/currentProject.js';
 import { deepMerge } from './lib/deepMerge.js';
 import fs from 'fs';
+import net from 'net';
 import crypto from 'crypto';
+import { checkForUpdate, currentVersion, updateChecksDisabled } from './version.js';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const PORT = parseInt(process.env.PORT || `${DEFAULT_PORT}`, 10);
@@ -55,6 +57,44 @@ const WS_HEARTBEAT_MS = 30_000;
 
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost']);
 const allowedPorts = new Set([String(PORT), ...(isDev ? [String(WEB_DEV_PORT)] : [])]);
+/** The port the server listens on: PORT, else the last one used, else the next free one (PLAN.md 16.3). */
+let activePort = PORT;
+
+function setActivePort(port: number) {
+  allowedPorts.delete(String(activePort));
+  activePort = port;
+  allowedPorts.add(String(port));
+}
+
+function portIsFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.once('listening', () => probe.close(() => resolve(true)));
+    probe.listen(port, HOST);
+  });
+}
+
+/** Preferred port first, then the next 20, then any port the OS gives. */
+async function choosePort(preferred: number): Promise<number> {
+  for (let p = preferred; p < preferred + 20; p++) if (await portIsFree(p)) return p;
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, HOST, () => {
+      const port = (probe.address() as net.AddressInfo).port;
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+function verifyCliToken(token: string | undefined): boolean {
+  const file = getShutdownTokenPath();
+  if (!fs.existsSync(file)) return false;
+  const expected = Buffer.from(fs.readFileSync(file, 'utf8').trim());
+  const actual = Buffer.from(token ?? '');
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
 
 function isAllowedHostPort(hostname: string, port: string): boolean {
   return LOCAL_HOSTNAMES.has(hostname) && allowedPorts.has(port);
@@ -159,7 +199,8 @@ export async function createServer() {
       req.url.startsWith('/api/health') ||
       req.url.startsWith('/api/version') ||
       req.url.startsWith('/api/boot') ||
-      req.url.startsWith('/api/shutdown');
+      req.url.startsWith('/api/shutdown') ||
+      req.url.startsWith('/api/cli/');
     if ((req.url.startsWith('/api') || isWs) && !isPublic && !AUTH_DISABLED) {
       if (!verifySessionCookie(req.cookies[SESSION_COOKIE])) {
         return reply.code(401).send({ error: 'Unauthorized: run `crewtree` to open the web UI again' });
@@ -188,20 +229,41 @@ export async function createServer() {
   fastify.get('/api/health', async () => {
     return {
       status: 'ok',
-      version: '0.1.0',
+      version: currentVersion(),
+      port: activePort,
       uptime: process.uptime(),
       pid: process.pid,
       runningAgents: sessionService.getRunningProcessCount(),
     };
   });
 
+  // Update notice for the web banner (PLAN.md 16.4); at most one GitHub call a day
   fastify.get('/api/version', async () => {
+    const check = await checkForUpdate();
     return {
-      current: '0.1.0',
-      latest: '0.1.0',
-      updateAvailable: false,
-      releaseUrl: 'https://github.com/crewtree/crewtree/releases',
+      current: check.current,
+      latest: check.latest ?? check.current,
+      updateAvailable: check.updateAvailable,
+      releaseUrl: check.releaseUrl,
+      disabled: updateChecksDisabled(),
     };
+  });
+
+  // CLI: `crewtree [path]` opens the browser signed in, switching the project (PLAN.md 16.3).
+  // Authenticated with ~/.crewtree/shutdown.token, which only the local user can read.
+  fastify.post('/api/cli/open', async (req, reply) => {
+    const { token, project } = (req.body ?? {}) as { token?: string; project?: string };
+    if (!verifyCliToken(token)) {
+      reply.code(403).send({ error: 'Forbidden' });
+      return;
+    }
+    try {
+      if (project) ProjectService.getInstance().open(project);
+    } catch (err: any) {
+      reply.code(400).send({ error: err.message });
+      return;
+    }
+    return { url: `http://${HOST}:${activePort}/auth?t=${generateOneTimeToken()}` };
   });
 
   // Settings → Limits "Clean up now"
@@ -211,8 +273,8 @@ export async function createServer() {
   fastify.get('/api/account', async () => ({
     dataDir: getCrewtreeDir(),
     claudeDir: getClaudeDir(),
-    server: `http://${HOST}:${PORT}`,
-    version: '0.1.0',
+    server: `http://${HOST}:${activePort}`,
+    version: currentVersion(),
     claude: await ClaudeStatusService.getInstance().getStatus(),
     throttled: sessionService.hasThrottledAgent(),
   }));
@@ -253,20 +315,15 @@ export async function createServer() {
     await ResourceWatcher.getInstance().stop();
     await fastify.close();
     closeDb();
+    // The CLI treats a missing pid file as "not running"
+    for (const file of [getPidPath(), getShutdownTokenPath()]) fs.rmSync(file, { force: true });
   };
   fastify.decorate('crewtreeShutdown', shutdown);
 
   // /api/shutdown: CLI only, authenticated with ~/.crewtree/shutdown.token instead of the cookie
   fastify.post('/api/shutdown', async (req, reply) => {
     const { token } = (req.body ?? {}) as { token?: string };
-    const shutdownTokenPath = getShutdownTokenPath();
-    if (!fs.existsSync(shutdownTokenPath)) {
-      reply.code(400).send({ error: 'Shutdown token not found' });
-      return;
-    }
-    const expected = Buffer.from(fs.readFileSync(shutdownTokenPath, 'utf8').trim());
-    const actual = Buffer.from(token ?? '');
-    if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+    if (!verifyCliToken(token)) {
       reply.code(403).send({ error: 'Forbidden' });
       return;
     }
@@ -340,8 +397,22 @@ async function start() {
   const shutdownToken = crypto.randomBytes(24).toString('hex');
   fs.writeFileSync(getShutdownTokenPath(), shutdownToken, { mode: 0o600, encoding: 'utf8' });
 
-  // Save config
-  fs.writeFileSync(getConfigPath(), JSON.stringify({ port: PORT }), 'utf8');
+  // Same port as last time unless PORT is set; another free one when it is taken
+  let preferred = PORT;
+  if (!process.env.PORT) {
+    try {
+      preferred = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8')).port || PORT;
+    } catch {
+      preferred = PORT;
+    }
+  }
+  setActivePort(await choosePort(preferred));
+  // config.json tells the CLI where the server is (PLAN.md 16.3)
+  fs.writeFileSync(
+    getConfigPath(),
+    JSON.stringify({ port: activePort, pid: process.pid, version: currentVersion(), startedAt: Date.now() }),
+    'utf8'
+  );
 
   const onSignal = () => {
     void (app as any).crewtreeShutdown().finally(() => process.exit(0));
@@ -350,9 +421,9 @@ async function start() {
   process.once('SIGTERM', onSignal);
 
   try {
-    await app.listen({ port: PORT, host: HOST });
-    console.log(`\n🌲 Crewtree Server running on http://${HOST}:${PORT}`);
-    console.log(`🔑 Login: http://${HOST}:${PORT}/auth?t=${generateOneTimeToken()}`);
+    await app.listen({ port: activePort, host: HOST });
+    console.log(`\n🌲 Crewtree ${currentVersion()} running on http://${HOST}:${activePort}`);
+    console.log(`🔑 Login: http://${HOST}:${activePort}/auth?t=${generateOneTimeToken()}`);
     if (isDev) {
       console.log(`🔑 Login (Vite dev): http://localhost:${WEB_DEV_PORT}/auth?t=${generateOneTimeToken()}`);
     }

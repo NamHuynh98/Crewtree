@@ -687,6 +687,14 @@
     "dataDir": "Data directory",
     "claudeDir": "Claude Code directory",
     "server": "Server",
-    "version": "Version"
+    "version": "Version",
+    "updates": "Updates",
+    "checkUpdates": "Check for updates",
+    "checkUpdatesHint": "Once a day, from GitHub Releases. The app never updates itself; run `crewtree update`."
+  },
+  "update": {
+    "available": "Crewtree v{{version}} is available (you have v{{current}})",
+    "whatsNew": "What's new",
+    "howTo": "How to update"
   }
 }

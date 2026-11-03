@@ -679,6 +679,14 @@
     "dataDir": "Thư mục dữ liệu",
     "claudeDir": "Thư mục Claude Code",
     "server": "Server",
-    "version": "Phiên bản"
+    "version": "Phiên bản",
+    "updates": "Cập nhật",
+    "checkUpdates": "Kiểm tra bản mới",
+    "checkUpdatesHint": "Mỗi ngày một lần, từ GitHub Releases. Ứng dụng không tự cập nhật; hãy chạy `crewtree update`."
+  },
+  "update": {
+    "available": "Đã có Crewtree v{{version}} (bạn đang dùng v{{current}})",
+    "whatsNew": "Có gì mới",
+    "howTo": "Cách cập nhật"
   }
 }

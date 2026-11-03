@@ -13,7 +13,9 @@
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "i18n:check": "node scripts/i18n-check.mjs"
+    "i18n:check": "node scripts/i18n-check.mjs",
+    "pack": "node scripts/pack.mjs",
+    "licenses:check": "node scripts/check-licenses.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

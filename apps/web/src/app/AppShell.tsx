@@ -20,6 +20,7 @@ import { ShellContext, type ProjectInfo } from './shell';
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { ApprovalInbox } from './ApprovalInbox';
 import { CommandPalette } from './CommandPalette';
+import { UpdateBanner } from './UpdateBanner';
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition ${
@@ -200,6 +201,7 @@ export function AppShell() {
             </NavLink>
           </div>
         </header>
+        <UpdateBanner />
 
         <div className="flex-1 flex overflow-hidden">
           <aside className="w-56 border-r border-border bg-card/50 flex flex-col justify-between p-3 select-none">

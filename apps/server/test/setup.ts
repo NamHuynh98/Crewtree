@@ -7,3 +7,4 @@ import path from 'path';
 process.env.CREWTREE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'crewtree-test-'));
 process.env.CLAUDE_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'crewtree-claude-'));
 process.env.CREWTREE_DRIVER = 'fake';
+process.env.CREWTREE_NO_UPDATE_CHECK = '1';
