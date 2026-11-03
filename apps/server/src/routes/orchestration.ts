@@ -7,9 +7,8 @@ import { EventBus } from '../events/EventBus.js';
 import { ApprovalService } from '../approvals/ApprovalService.js';
 import { ClaudeStatusService } from '../claude/ClaudeStatusService.js';
 import { ModelCatalogService } from '../models/ModelCatalogService.js';
-import { listLibraryAgents } from '../resources/agents/agentLibrary.js';
 import { GitCheckpoint } from '../files/GitCheckpoint.js';
-import { getCurrentProject, getCurrentProjectPath } from '../projects/currentProject.js';
+import { getCurrentProjectPath } from '../projects/currentProject.js';
 
 /** Runs `fn`, turning thrown errors into 400 (or 404 for "not found") JSON errors. */
 async function handle<T>(reply: FastifyReply, fn: () => Promise<T> | T): Promise<T | undefined> {
@@ -28,8 +27,6 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
   const approvals = ApprovalService.getInstance();
   const eventBus = EventBus.getInstance();
 
-  fastify.get('/api/projects', async () => ({ current: getCurrentProject() }));
-
   // Claude Code login state + whether any agent is rate limited (UI-WIREFRAMES 0 sidebar footer)
   fastify.get('/api/claude/status', async (req) => {
     const { refresh } = req.query as { refresh?: string };
@@ -41,20 +38,6 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
 
   fastify.get('/api/models', async () => ModelCatalogService.getInstance().getCatalog());
   fastify.post('/api/models/refresh', async () => ModelCatalogService.getInstance().getCatalog(true));
-
-  // Minimal agent library listing; the full resource API (all kinds, CRUD, revisions) is Phase 3
-  fastify.get('/api/resources/agents', async () =>
-    listLibraryAgents(getCurrentProjectPath()).map((a) => ({
-      name: a.name,
-      scope: a.scope,
-      description: a.description,
-      model: a.frontmatter.model,
-      canDelegate: a.frontmatter.canDelegate,
-      delegates: a.frontmatter.delegates,
-      role: a.frontmatter.role,
-      path: a.path,
-    }))
-  );
 
   // ---------------------------------------------------------------- sessions
 

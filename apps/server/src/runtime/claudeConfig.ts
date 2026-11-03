@@ -21,7 +21,7 @@ function readJson(file: string): Record<string, any> | null {
   }
 }
 
-function readSettingsFiles(cwd: string): Record<string, any>[] {
+export function readSettingsFiles(cwd: string): Record<string, any>[] {
   return [
     path.join(getClaudeDir(), 'settings.json'),
     path.join(cwd, '.claude', 'settings.json'),

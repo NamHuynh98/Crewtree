@@ -822,10 +822,10 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 - Kết quả: kịch bản cây 3 tầng chạy trọn với FakeDriver (`test/orchestration.e2e.test.ts`) và tài khoản thật qua trang test (Supervisor Sonnet → researcher, analyst có `ask_parent`, lead-coder → implementer tự sinh; có duyệt quyền, "Always allow", chat trực tiếp với node con, checkpoint git)
 
 ### Phase 3 — Tài nguyên và Agents (3 ngày)
-- [ ] ResourceScanner + watcher cho mọi loại, badge nguồn (gồm scope Crewtree), "Move to scope…", built-in chỉ tham khảo, project switcher
-- [ ] CRUD agent, revision, duplicate, import/export, đổi model hàng loạt
-- [ ] Trang Agents, Agent Editor (form, CodeMirror, tab File .md, history)
-- [ ] ModelCatalogService + model picker
+- [x] ResourceScanner + watcher cho mọi loại, badge nguồn (gồm scope Crewtree), "Move to scope…", built-in chỉ tham khảo, project switcher
+- [x] CRUD agent, revision, duplicate, import/export, đổi model hàng loạt
+- [x] Trang Agents, Agent Editor (form, CodeMirror, tab File .md, history)
+- [x] ModelCatalogService + model picker
 - Kết quả: agent sẵn có trong `~/.claude/agents` hiện đủ; tạo/sửa ghi đúng file
 
 ### Phase 4 — Composer và AI Generate (3 ngày)

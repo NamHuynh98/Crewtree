@@ -7,14 +7,22 @@ export const appSettingsTable = sqliteTable('app_settings', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-export const resourceRevisionsTable = sqliteTable('resource_revisions', {
-  id: text('id').primaryKey(),
-  kind: text('kind').notNull(),
-  scope: text('scope').notNull(),
-  path: text('path').notNull(),
-  content: text('content').notNull(),
-  createdAt: integer('created_at').notNull(),
-});
+export const resourceRevisionsTable = sqliteTable(
+  'resource_revisions',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').notNull(),
+    scope: text('scope').notNull(),
+    path: text('path').notNull(),
+    /** Resource name: the history follows an agent across moves between scopes */
+    name: text('name').notNull().default(''),
+    /** baseline | create | update | delete | move | rollback */
+    action: text('action').notNull().default('update'),
+    content: text('content').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('resource_revisions_kind_name_idx').on(t.kind, t.name)]
+);
 
 export const projectsTable = sqliteTable('projects', {
   id: text('id').primaryKey(),

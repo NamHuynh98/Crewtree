@@ -6,6 +6,7 @@ import { writeFileAtomic } from '../../lib/atomicWrite.js';
 import { EventBus } from '../../events/EventBus.js';
 import { ModelCatalogService, pickBestModel } from '../../models/ModelCatalogService.js';
 import { LibraryAgent, listLibraryAgents } from './agentLibrary.js';
+import { ResourceScanner } from '../ResourceScanner.js';
 
 /** PLAN.md Appendix A.1 */
 export function supervisorTemplate(model: string): string {
@@ -50,6 +51,7 @@ export function ensureDefaultSupervisor(projectDir?: string): Promise<LibraryAge
       const model = (catalog.source === 'account' && pickBestModel(catalog.models)) || 'opus';
       const file = path.join(getCrewtreeAgentsDir(), `${DEFAULT_SUPERVISOR_NAME}.md`);
       writeFileAtomic(file, supervisorTemplate(model));
+      ResourceScanner.getInstance().invalidate('agent');
       EventBus.getInstance().emitEvent({
         sessionId: '',
         type: 'resource.changed',

@@ -30,7 +30,8 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number];
 export const RESOURCE_KINDS = ['agent', 'skill', 'command', 'memory', 'mcp', 'plugin'] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
-export const RESOURCE_SCOPES = ['crewtree', 'user', 'project', 'plugin', 'builtin'] as const;
+// `local`: Claude Code's per-project private scope (MCP servers in ~/.claude.json → projects[path])
+export const RESOURCE_SCOPES = ['crewtree', 'user', 'project', 'local', 'plugin', 'builtin'] as const;
 export type ResourceScope = (typeof RESOURCE_SCOPES)[number];
 
 export const RUNTIMES = ['claude', 'opencode', 'codex', 'gemini-cli'] as const;

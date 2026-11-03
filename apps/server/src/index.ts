@@ -21,6 +21,9 @@ import { SessionService } from './sessions/SessionService.js';
 import { EventBus } from './events/EventBus.js';
 import { getAppSettings } from './settings/appSettings.js';
 import { registerOrchestrationRoutes } from './routes/orchestration.js';
+import { registerResourceRoutes } from './routes/resources.js';
+import { ResourceWatcher } from './resources/ResourceWatcher.js';
+import { ProjectService } from './projects/ProjectService.js';
 import { ensureDefaultSupervisor } from './resources/agents/defaultSupervisor.js';
 import { getCurrentProjectPath } from './projects/currentProject.js';
 import { deepMerge } from './lib/deepMerge.js';
@@ -208,6 +211,7 @@ export async function createServer() {
   });
 
   registerOrchestrationRoutes(fastify);
+  registerResourceRoutes(fastify);
 
   let shuttingDown = false;
   const shutdown = async () => {
@@ -215,6 +219,7 @@ export async function createServer() {
     shuttingDown = true;
     clearInterval(heartbeat);
     await sessionService.disposeAll();
+    await ResourceWatcher.getInstance().stop();
     await fastify.close();
     closeDb();
   };
@@ -321,6 +326,9 @@ async function start() {
       console.log(`🔑 Login (Vite dev): http://localhost:${WEB_DEV_PORT}/auth?t=${generateOneTimeToken()}`);
     }
     console.log('   (one-time links, valid for 60s)\n');
+    // Resources follow CLI/editor edits; the watcher moves with the project switcher (PLAN.md 6.1)
+    ResourceWatcher.getInstance().start();
+    ProjectService.getInstance().onChange(() => ResourceWatcher.getInstance().start());
     // Default Supervisor when the library has none (PLAN.md 4.1); not blocking startup
     void ensureDefaultSupervisor(getCurrentProjectPath()).catch((err) =>
       console.warn('[crewtree] Could not create the default supervisor:', err)

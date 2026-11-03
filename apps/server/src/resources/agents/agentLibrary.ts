@@ -2,10 +2,12 @@
 import fs from 'fs';
 import path from 'path';
 import type { AgentFrontmatter } from '@crewtree/shared';
-import { getClaudeDir, getCrewtreeAgentsDir } from '../../paths.js';
+import { ProjectService } from '../../projects/ProjectService.js';
 import { parseAgentSnapshot } from '../../runtime/agentDefinition.js';
+import { ResourceScanner } from '../ResourceScanner.js';
+import { AGENT_PRECEDENCE, scanAgents } from '../scan/agents.js';
 
-export type LibraryScope = 'crewtree' | 'user' | 'project';
+export type LibraryScope = 'crewtree' | 'user' | 'project' | 'plugin';
 
 export interface LibraryAgent {
   name: string;
@@ -16,42 +18,37 @@ export interface LibraryAgent {
   description: string;
 }
 
-function readDir(dir: string, scope: LibraryScope): LibraryAgent[] {
-  let files: string[];
-  try {
-    files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
-  } catch {
-    return [];
-  }
-  return files.flatMap((file) => {
-    const fullPath = path.join(dir, file);
-    try {
-      const content = fs.readFileSync(fullPath, 'utf8');
-      const { frontmatter } = parseAgentSnapshot(content, path.basename(file, '.md'));
-      return [
-        { name: frontmatter.name, scope, path: fullPath, content, frontmatter, description: frontmatter.description },
-      ];
-    } catch {
-      return [];
-    }
-  });
-}
-
 /**
- * Agents available to sessions (PLAN.md 6.1). Same name in several scopes: Project > User > Crewtree.
- * The full ResourceScanner + watcher (plugins, built-ins, revisions) is Phase 3.
+ * Agents usable as session nodes: every file-backed agent, one per name by precedence
+ * Project > User > Crewtree > Plugin (PLAN.md 6.1). Built-ins have no definition and are excluded.
  */
 export function listLibraryAgents(projectDir?: string): LibraryAgent[] {
-  const byName = new Map<string, LibraryAgent>();
-  const sources: Array<[string, LibraryScope]> = [
-    [getCrewtreeAgentsDir(), 'crewtree'],
-    [path.join(getClaudeDir(), 'agents'), 'user'],
-    ...(projectDir ? ([[path.join(projectDir, '.claude', 'agents'), 'project']] as Array<[string, LibraryScope]>) : []),
-  ];
-  for (const [dir, scope] of sources) {
-    for (const agent of readDir(dir, scope)) byName.set(agent.name, agent);
+  const current = ProjectService.getInstance().currentPath();
+  const items =
+    !projectDir || path.resolve(projectDir) === current
+      ? ResourceScanner.getInstance().list('agent')
+      : scanAgents(path.resolve(projectDir));
+  const best = new Map<string, LibraryAgent>();
+  for (const item of items) {
+    if (!item.path || item.scope === 'builtin') continue;
+    const existing = best.get(item.name);
+    if (existing && AGENT_PRECEDENCE.indexOf(existing.scope) <= AGENT_PRECEDENCE.indexOf(item.scope)) continue;
+    let content: string;
+    try {
+      content = fs.readFileSync(item.path, 'utf8');
+    } catch {
+      continue;
+    }
+    best.set(item.name, {
+      name: item.name,
+      scope: item.scope as LibraryScope,
+      path: item.path,
+      content,
+      frontmatter: parseAgentSnapshot(content, item.name).frontmatter,
+      description: item.description,
+    });
   }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...best.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function findLibraryAgent(name: string, projectDir?: string): LibraryAgent | undefined {
