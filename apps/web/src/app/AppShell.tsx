@@ -19,6 +19,7 @@ import { ClaudeStatus, type ClaudeStatusInfo } from '@/components/ClaudeStatus';
 import { ShellContext, type ProjectInfo } from './shell';
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { ApprovalInbox } from './ApprovalInbox';
+import { CommandPalette } from './CommandPalette';
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition ${
@@ -37,6 +38,7 @@ export function AppShell() {
   const [claudeStatus, setClaudeStatus] = useState<ClaudeStatusInfo | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const { data: projects } = useQuery({
     queryKey: ['projects'],
     queryFn: () => api<{ current: ProjectInfo }>('/api/projects'),
@@ -110,6 +112,18 @@ export function AppShell() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
+  // Ctrl+K / ⌘K command palette
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // "System" follows the OS setting live
   useEffect(() => {
     setTheme(resolveTheme(themeSetting));
@@ -150,7 +164,17 @@ export function AppShell() {
   ];
 
   return (
-    <ShellContext.Provider value={{ project: projects?.current ?? null, refreshApprovals, notify: setNotice }}>
+    <ShellContext.Provider
+      value={{
+        project: projects?.current ?? null,
+        refreshApprovals,
+        notify: setNotice,
+        themeSetting,
+        changeTheme,
+        changeLanguage,
+        openPalette: () => setPaletteOpen(true),
+      }}
+    >
       <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">
         <header className="h-12 border-b border-border px-4 flex items-center justify-between bg-card select-none">
           <div className="flex items-center gap-4">
@@ -217,6 +241,7 @@ export function AppShell() {
           </aside>
 
           <Outlet />
+          <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
         </div>
 
         {notice && (

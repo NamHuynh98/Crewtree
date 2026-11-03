@@ -845,11 +845,11 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 - Kết quả: trải nghiệm đầy đủ như wireframe
 
 ### Phase 6 — Claude Config Manager và Settings (4 ngày)
-- [ ] Skills, Commands (layout chung, cây file phụ), Memory (cây import, auto memory), MCP (form + test, qua `claude mcp`, che secret), Plugins (bật/tắt, cài/gỡ, marketplace)
-- [ ] AI Generate cho skill/command/memory/MCP/plugin
-- [ ] Settings: General (ngôn ngữ, generated content language, theme), Models, Defaults, Limits (`maxConcurrentAgents` chung, thời gian tắt agent rảnh, thời gian giữ events + Clean up), Account
-- [ ] Bộ chọn ngôn ngữ trên header, `i18n:check` trong CI, hoàn thiện bản dịch `vi`
-- [ ] Hiển thị token/turn, empty states, theme tối, Ctrl+K command palette
+- [x] Skills, Commands (layout chung, cây file phụ), Memory (cây import, auto memory), MCP (form + test, qua `claude mcp`, che secret), Plugins (bật/tắt, cài/gỡ, marketplace)
+- [x] AI Generate cho skill/command/memory/MCP/plugin
+- [x] Settings: General (ngôn ngữ, generated content language, theme), Models, Defaults, Limits (`maxConcurrentAgents` chung, thời gian tắt agent rảnh, thời gian giữ events + Clean up), Account
+- [x] Bộ chọn ngôn ngữ trên header, `i18n:check` trong CI, hoàn thiện bản dịch `vi`
+- [x] Hiển thị token/turn, empty states, theme tối, Ctrl+K command palette
 
 ### Phase 7 — CLI, phát hành và cập nhật (7–8 ngày, gồm Windows)
 - [ ] `apps/cli`: open/stop/status/logs/doctor, daemon, pid, health, `POST /api/shutdown` + token

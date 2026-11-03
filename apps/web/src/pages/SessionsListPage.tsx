@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ShieldAlert } from 'lucide-react';
@@ -35,7 +35,14 @@ export function SessionsListPage() {
   const queryClient = useQueryClient();
   const { project } = useShell();
   const relative = useRelativeTime();
-  const [creating, setCreating] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [creating, setCreating] = useState(() => searchParams.get('new') === '1');
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setCreating(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');

@@ -491,7 +491,12 @@ export class SessionService implements TaskHost {
   // ------------------------------------------------------------------ settings & queries
 
   private defaultSettings(): SessionSettings {
-    return SessionSettingsSchema.parse({ idleSuspendMinutes: getAppSettings().limits.defaults.idleSuspendMinutes });
+    // New sessions start from Settings → Limits (UI-WIREFRAMES 13)
+    const { defaults, session } = getAppSettings().limits;
+    return SessionSettingsSchema.parse({
+      idleSuspendMinutes: defaults.idleSuspendMinutes,
+      limits: { ...session, maxConcurrentAgents: defaults.maxConcurrentAgents },
+    });
   }
 
   /** Validates a partial settings patch on top of `base` (new sessions: app defaults). */

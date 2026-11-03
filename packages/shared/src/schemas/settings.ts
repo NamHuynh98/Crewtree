@@ -4,7 +4,19 @@ import {
   DEFAULT_MAX_CONCURRENT_AGENTS,
   DEFAULT_IDLE_SUSPEND_MINUTES,
   DEFAULT_EVENTS_RETENTION_DAYS,
+  DEFAULT_MAX_DEPTH,
+  DEFAULT_MAX_TOTAL_AGENTS,
+  DEFAULT_MAX_TOKENS_PER_SESSION,
+  DEFAULT_MAX_TURNS_PER_AGENT,
 } from '../constants.js';
+
+/** Settings → Limits → Session defaults: applied to new sessions (UI-WIREFRAMES 13). */
+const SESSION_DEFAULTS = {
+  maxDepth: DEFAULT_MAX_DEPTH,
+  maxTotalAgents: DEFAULT_MAX_TOTAL_AGENTS,
+  maxTokens: DEFAULT_MAX_TOKENS_PER_SESSION,
+  maxTurns: DEFAULT_MAX_TURNS_PER_AGENT,
+};
 
 export const AppSettingsSchema = z.object({
   ui: z
@@ -57,6 +69,14 @@ export const AppSettingsSchema = z.object({
           idleSuspendMinutes: DEFAULT_IDLE_SUSPEND_MINUTES,
           eventsRetentionDays: DEFAULT_EVENTS_RETENTION_DAYS,
         }),
+      session: z
+        .object({
+          maxDepth: z.number().int().positive().default(DEFAULT_MAX_DEPTH),
+          maxTotalAgents: z.number().int().positive().default(DEFAULT_MAX_TOTAL_AGENTS),
+          maxTokens: z.number().int().positive().default(DEFAULT_MAX_TOKENS_PER_SESSION),
+          maxTurns: z.number().int().positive().default(DEFAULT_MAX_TURNS_PER_AGENT),
+        })
+        .default(SESSION_DEFAULTS),
     })
     .default({
       defaults: {
@@ -64,6 +84,7 @@ export const AppSettingsSchema = z.object({
         idleSuspendMinutes: DEFAULT_IDLE_SUSPEND_MINUTES,
         eventsRetentionDays: DEFAULT_EVENTS_RETENTION_DAYS,
       },
+      session: SESSION_DEFAULTS,
     }),
   update: z
     .object({

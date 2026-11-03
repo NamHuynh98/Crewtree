@@ -8,7 +8,16 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb, closeDb } from './db/index.js';
 import { appSettingsTable } from './db/schema.js';
-import { ensureDirectories, getConfigPath, getPidPath, getShutdownTokenPath } from './paths.js';
+import {
+  ensureDirectories,
+  getClaudeDir,
+  getConfigPath,
+  getCrewtreeDir,
+  getPidPath,
+  getShutdownTokenPath,
+} from './paths.js';
+import { cleanupEvents, scheduleCleanup, stopCleanup } from './settings/maintenance.js';
+import { ClaudeStatusService } from './claude/ClaudeStatusService.js';
 import {
   generateOneTimeToken,
   verifyAndConsumeOneTimeToken,
@@ -195,6 +204,19 @@ export async function createServer() {
     };
   });
 
+  // Settings → Limits "Clean up now"
+  fastify.post('/api/settings/cleanup', async () => ({ deleted: cleanupEvents() }));
+
+  // Settings → Account (UI-WIREFRAMES 13)
+  fastify.get('/api/account', async () => ({
+    dataDir: getCrewtreeDir(),
+    claudeDir: getClaudeDir(),
+    server: `http://${HOST}:${PORT}`,
+    version: '0.1.0',
+    claude: await ClaudeStatusService.getInstance().getStatus(),
+    throttled: sessionService.hasThrottledAgent(),
+  }));
+
   // Public: only language/theme, used by the Vite dev plugin to inject __BOOT__
   fastify.get('/api/boot', async () => getBootSettings());
 
@@ -225,6 +247,7 @@ export async function createServer() {
     if (shuttingDown) return;
     shuttingDown = true;
     clearInterval(heartbeat);
+    stopCleanup();
     await sessionService.disposeAll();
     await TryItService.getInstance().disposeAll();
     await ResourceWatcher.getInstance().stop();
@@ -337,6 +360,8 @@ async function start() {
     // Resources follow CLI/editor edits; the watcher moves with the project switcher (PLAN.md 6.1)
     ResourceWatcher.getInstance().start();
     ProjectService.getInstance().onChange(() => ResourceWatcher.getInstance().start());
+    // Event log retention of closed sessions (Settings → Limits)
+    scheduleCleanup();
     // Default Supervisor when the library has none (PLAN.md 4.1); not blocking startup
     void ensureDefaultSupervisor(getCurrentProjectPath()).catch((err) =>
       console.warn('[crewtree] Could not create the default supervisor:', err)
