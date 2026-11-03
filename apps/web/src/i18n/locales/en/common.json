@@ -46,8 +46,19 @@
     "subtitle": "Manage and coordinate multi-agent sessions on top of Claude Code",
     "emptyTitle": "No sessions yet",
     "emptyBody": "Create a session, pick a few agents and give the Supervisor a goal.",
-    "newTitle": "New session",
-    "titlePlaceholder": "Session name (e.g. Login feature)"
+    "titlePlaceholder": "Session name (e.g. Login feature)",
+    "search": "Search…",
+    "filter": "Filter:",
+    "allStatuses": "All statuses",
+    "allProjects": "All projects",
+    "agents_one": "{{count}} agent",
+    "agents_other": "{{count}} agents",
+    "levels_one": "{{count}} level",
+    "levels_other": "{{count}} levels",
+    "rename": "Rename",
+    "confirmDelete": "Delete session",
+    "copyOf": "{{title}} (copy)",
+    "noMatch": "No sessions match the filters."
   },
   "sessionStatus": {
     "active": "Active",
@@ -58,15 +69,17 @@
   },
   "workspace": {
     "back": "Back to sessions",
-    "agentCount_one": "{{count}} agent",
-    "agentCount_other": "{{count}} agents",
-    "tokens": "{{count}} tok",
-    "eventLog": "Event log",
-    "agentTree": "Agent tree",
-    "rateLimited": "Rate limited · retry in {{seconds}}s",
-    "suspendedHint": "Suspended · resumes on next task",
     "emptyChatTitle": "Give the Supervisor a goal.",
-    "emptyChatBody": "It will plan the work and report back here."
+    "emptyChatBody": "It will plan the work and report back here.",
+    "chatWith": "Chat · {{name}}",
+    "hide": "Hide",
+    "notFound": "This session no longer exists.",
+    "sessionSettings": "Session",
+    "tabs": {
+      "tree": "Tree",
+      "files": "Files",
+      "changes": "Changes"
+    }
   },
   "chat": {
     "placeholder": "Message {{name}}…",
@@ -75,22 +88,22 @@
     "interrupt": "Interrupt",
     "turnEnded": "Turn interrupted or failed.",
     "agentError": "Agent error: {{error}}",
-    "unknownError": "Unknown error",
     "toolDetails": "details",
-    "toolInput": "Input",
-    "toolOutput": "Output",
     "queued": "queued",
     "interruptAndSend": "Interrupt & send",
     "interruptAndSendNow": "Interrupt & send now",
     "withAttachments_one": "{{count}} attachment",
     "withAttachments_other": "{{count}} attachments",
-    "withReferencedCode": "Referenced code"
-  },
-  "eventLog": {
-    "title": "Live event log",
-    "count_one": "{{count}} event",
-    "count_other": "{{count}} events",
-    "empty": "No events yet"
+    "withReferencedCode": "Referenced code",
+    "you": "You",
+    "delegatedTo": "delegated to {{name}}: {{title}}",
+    "spawned": "spawned {{name}}",
+    "waitingResults": "waiting for results…",
+    "resultsReceived": "results received",
+    "messaged": "message to {{name}}",
+    "completed": "task completed",
+    "askedParent": "asked its parent",
+    "fromParent": "{{name}} (parent)"
   },
   "status": {
     "idle": "Idle",
@@ -118,28 +131,20 @@
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
-    "create": "Create",
     "allowOnce": "Allow once",
     "alwaysAllow": "Always allow",
     "deny": "Deny",
     "edit": "Edit",
-    "duplicate": "Duplicate"
+    "duplicate": "Duplicate",
+    "close": "Close"
   },
   "settingsSaveFailed": "Couldn't save settings.",
   "retry": "Retry",
   "tree": {
-    "task": "Task",
-    "queuedTasks_one": "{{count}} queued task",
-    "queuedTasks_other": "{{count}} queued tasks",
-    "spawnedBy": "spawned by {{name}}",
-    "addAgent": "Add agent",
-    "parent": "Parent",
-    "pickAgent": "Agent…"
+    "parent": "Parent"
   },
   "tasks": {
-    "title": "Tasks",
     "empty": "No tasks yet",
-    "fromUser": "You → Supervisor",
     "cancel": "Cancel task"
   },
   "taskStatus": {
@@ -167,8 +172,7 @@
     "resume": "Resume",
     "stop": "Stop",
     "needsInput": "Needs your input",
-    "answerHint": "Reply in the chat below to answer.",
-    "pausedBudget": "Paused: token budget reached"
+    "answerHint": "Reply in the chat below to answer."
   },
   "notices": {
     "supervisorCreated": "Created crewtree-supervisor with {{model}}"
@@ -363,5 +367,187 @@
     "deny": "Deny",
     "placeholder": "Message {{name}}…",
     "simulatedNote": "Delegation is simulated in the sandbox: no child agents are started."
+  },
+  "addAgents": {
+    "title": "Add agents",
+    "search": "Search agents…",
+    "none": "No matching agents",
+    "delegates": "delegates",
+    "limited": "This parent may only delegate to: {{names}}",
+    "add_one": "Add ({{count}})",
+    "add_other": "Add ({{count}})"
+  },
+  "canvas": {
+    "outline": "Outline",
+    "collapseAll": "All",
+    "expandAll": "All",
+    "fit": "Fit",
+    "addAgents": "Add agents",
+    "library": "Agents",
+    "addEllipsis": "Add…",
+    "dragHint": "Drag an agent onto a node to add it as a child.",
+    "tasks_one": "{{count}} task",
+    "tasks_other": "{{count}} tasks"
+  },
+  "changes": {
+    "empty": "No files changed by agents yet.",
+    "summary_one": "{{count}} file",
+    "summary_other": "{{count}} files",
+    "task": "task: {{title}}",
+    "viaBash": "via Bash",
+    "status": {
+      "added": "added",
+      "modified": "modified",
+      "deleted": "deleted"
+    }
+  },
+  "conflict": {
+    "message": "{{agent}} tried to edit {{path}} — locked by {{holder}} (task: {{task}}).",
+    "reported": "Blocked and reported to its parent.",
+    "view": "View",
+    "dismiss": "Dismiss"
+  },
+  "drawer": {
+    "title": "Agent {{name}}",
+    "expand": "Expand",
+    "tabs": {
+      "activity": "Activity",
+      "chat": "Chat",
+      "tasks": "Tasks",
+      "changes": "Changes",
+      "config": "Config"
+    },
+    "loadOlder": "Load older ↑",
+    "noActivity": "No activity yet.",
+    "runningFor": "running {{time}}…",
+    "throttled": "Rate limited",
+    "filterText": "Text",
+    "filterTools": "Tools",
+    "errorsOnly": "Errors only",
+    "parentNotified": "Messages here go straight to this agent; its parent sees the result.",
+    "scope": "scope",
+    "result": "Result",
+    "showFull": "Show full",
+    "fromAgent": "from {{name}}",
+    "fromYou": "from you",
+    "agent": "Agent",
+    "openInEditor": "Open in Editor",
+    "resetOverride": "Reset override",
+    "overrideHint": "Applies to this session only, from the next turn; the agent file is not changed.",
+    "on": "on",
+    "off": "off",
+    "enableForSession": "Enable for this session",
+    "disableForSession": "Disable for this session",
+    "systemPrompt": "System prompt (snapshot, read-only)",
+    "remove": "Remove from session",
+    "removeConfirm": "Remove it and its subtree?"
+  },
+  "files": {
+    "view": "View",
+    "diff": "Diff",
+    "compareWith": "Compare with",
+    "baseSession": "Before this session",
+    "checkpoint": "Checkpoint #{{n}}",
+    "render": "Render",
+    "source": "Source",
+    "openInVsCode": "Open in VS Code",
+    "editedBy": "Edited by {{agent}} · {{time}}",
+    "noBase": "The file does not exist in the selected base (new file).",
+    "mention": "Mention in chat",
+    "copyPath": "Copy path{{range}}",
+    "keysHint": "Ctrl+F find · Ctrl+G go to line · live-updates on change",
+    "search": "Search files…",
+    "onlyChanged": "Only files changed by agents",
+    "legend": "M modified · A added · ● agent",
+    "pick": "Pick a file to view it."
+  },
+  "inbox": {
+    "title": "Pending approvals ({{count}})",
+    "empty": "Nothing waiting for you."
+  },
+  "menu": {
+    "viewDetails": "View details",
+    "chat": "Chat",
+    "changeModel": "Change model (this session)",
+    "addChild": "Add child agent…",
+    "collapse": "Collapse branch",
+    "expand": "Expand branch",
+    "stopTask": "Stop current task",
+    "openInEditor": "Open in Agent Editor",
+    "remove": "Remove from session",
+    "removeConfirm": "Click again to remove it and its subtree",
+    "modelHint": "Override for this session"
+  },
+  "newSession": {
+    "title": "New session",
+    "name": "Session name",
+    "cwd": "Working directory",
+    "supervisor": "Supervisor",
+    "tree": "Initial agent tree (you can change it later)",
+    "treeEmpty": "Only the Supervisor. Add agents below or let it spawn them.",
+    "addAgent": "+ Add agent",
+    "addChild": "+ child",
+    "remove": "Remove {{name}}",
+    "agentDefault": "default ({{model}})",
+    "advanced": "Advanced",
+    "create": "Create ▸",
+    "creating": "Creating…",
+    "defaultTitle": "New session"
+  },
+  "node": {
+    "needsApproval": "Needs approval: {{tool}}",
+    "rateLimited": "Rate limited · retry in {{seconds}}s",
+    "queued_one": "Queued · {{count}} agent running",
+    "queued_other": "Queued · {{count}} agents running",
+    "needsYourInput": "Needs your input",
+    "questionFor": "Question for {{parent}}",
+    "waitingChildren": "Waiting for {{done}}/{{total}} children",
+    "suspended": "Suspended · resumes on next task",
+    "error": "Error — see Activity",
+    "thinking": "Thinking…",
+    "task": "Task",
+    "changeModel": "Change model for this session",
+    "override": "Session model override",
+    "spawnedBy": "spawned by {{name}}",
+    "collapsed": "+{{count}} agents · {{running}} running",
+    "allow": "Allow",
+    "deny": "Deny",
+    "details": "Details",
+    "chat": "Chat",
+    "collapse": "Collapse branch",
+    "expand": "Expand branch",
+    "turns_one": "{{count}} turn",
+    "turns_other": "{{count}} turns",
+    "files_one": "{{count}} file touched",
+    "files_other": "{{count}} files touched"
+  },
+  "sessionSettings": {
+    "title": "Session settings",
+    "concurrent": "Concurrent",
+    "maxDepth": "Max depth",
+    "maxTotal": "Total agents",
+    "maxTokens": "Max tokens",
+    "maxTurns": "Max turns/agent",
+    "config": "Claude Code config:",
+    "groups": {
+      "claudemd": "CLAUDE.md",
+      "skillsPlugins": "Skills/Plugins",
+      "hooks": "Hooks",
+      "permissions": "Permissions"
+    },
+    "permissionsWarning": "Permission rules stay active while CLAUDE.md or Skills/Plugins are on (unmatched tools still ask you).",
+    "idleSuspend": "Suspend idle agents after",
+    "minutes": "min",
+    "checkpoint": "Git checkpoint before each Supervisor turn",
+    "applyHint": "Limits apply immediately; config groups apply when an agent process restarts.",
+    "usage": "Usage: {{used}} / {{max}} tokens",
+    "usageDetail": "input {{input}} · output {{output}} · cache read {{cache}} (since opened)",
+    "processes": "Processes: {{running}} running · {{suspended}} suspended · {{ram}} RAM",
+    "ramHint": "RAM counts every Claude Code process Crewtree started, across sessions.",
+    "checkpoints": "Checkpoints",
+    "noCheckpoints": "No checkpoints (turn on Git checkpoints in a git repository).",
+    "restore": "Restore",
+    "restoreConfirm": "Overwrite tracked files?",
+    "saved": "Saved"
   }
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { getDb } from '../db/index.js';
-import { sessionsTable, sessionAgentsTable, messagesTable } from '../db/schema.js';
+import { sessionsTable, sessionAgentsTable, messagesTable, eventsTable, fileTouchesTable } from '../db/schema.js';
 import {
   Session,
   SessionAgent,
@@ -209,8 +209,8 @@ export class SessionService implements TaskHost {
       limiter: this.limiter,
       mcpHandlers: this.taskManager.toolHandlers() as unknown as Partial<OrchestratorHandlers>,
       hooks: createToolHooks({ sessionId: session.id, agent, cwd: session.cwd, taskManager: this.taskManager }),
-      canUseTool: (toolName, input, onPending) =>
-        approvals.request({
+      canUseTool: async (toolName, input, onPending) => {
+        const outcome = await approvals.request({
           onPending,
           sessionId: session.id,
           sessionAgentId: agent.id,
@@ -219,7 +219,11 @@ export class SessionService implements TaskHost {
           cwd: session.cwd,
           taskId: this.taskManager.currentTask(agent.id)?.id,
           label: isOutsideScopeRequest(agent.id, toolName, input, session.cwd) ? 'outside_scope' : undefined,
-        }),
+        });
+        // A denied Bash never reaches PostToolUse: stop attributing file changes to it
+        if (!outcome.allow && toolName === 'Bash') FileActivity.getInstance().bashEnded(agent.id);
+        return outcome;
+      },
       onTurnComplete: (usage) => this.onTurnComplete(session.id, agent.id, usage),
       onError: (error) => this.taskManager.onAgentError(agent.id, error),
     });
@@ -230,6 +234,8 @@ export class SessionService implements TaskHost {
 
   private onTurnComplete(sessionId: string, agentId: string, usage: TurnUsage) {
     this.recordUsage(sessionId, usage);
+    // No Bash command outlives the turn (interrupted or failed commands may skip PostToolUse)
+    FileActivity.getInstance().bashEnded(agentId);
     // Edits made outside any task keep their leases only for the turn
     if (!this.taskManager.currentTask(agentId)) FileLockManager.getInstance().releaseAgent(agentId);
     void this.taskManager.onTurnEnd(agentId, usage);
@@ -514,6 +520,80 @@ export class SessionService implements TaskHost {
     }
     this.limiter.drain();
     return this.getSession(id)!;
+  }
+
+  /**
+   * Per-agent counters for the canvas nodes (UI-WIREFRAMES 2 node anatomy): tokens (input + output) and
+   * turns from usage events, files touched, and the last tool call as the current activity line.
+   */
+  public getAgentStats(
+    sessionId: string
+  ): Record<
+    string,
+    { tokens: number; turns: number; filesTouched: number; lastTool?: { tool: string; input: unknown; ts: number } }
+  > {
+    const db = getDb();
+    const out: ReturnType<SessionService['getAgentStats']> = {};
+    const entry = (id: string) => (out[id] ??= { tokens: 0, turns: 0, filesTouched: 0 });
+    const usage = db
+      .select({
+        agentId: eventsTable.sessionAgentId,
+        tokens: sql<number>`sum(coalesce(json_extract(${eventsTable.payload}, '$.inputTokens'), 0) + coalesce(json_extract(${eventsTable.payload}, '$.outputTokens'), 0))`,
+        turns: sql<number>`sum(coalesce(json_extract(${eventsTable.payload}, '$.numTurns'), 0))`,
+      })
+      .from(eventsTable)
+      .where(and(eq(eventsTable.sessionId, sessionId), eq(eventsTable.type, 'usage.updated')))
+      .groupBy(eventsTable.sessionAgentId)
+      .all();
+    for (const u of usage) {
+      if (!u.agentId) continue;
+      entry(u.agentId).tokens = Number(u.tokens) || 0;
+      entry(u.agentId).turns = Number(u.turns) || 0;
+    }
+    const files = db
+      .select({ agentId: fileTouchesTable.sessionAgentId, n: sql<number>`count(distinct ${fileTouchesTable.path})` })
+      .from(fileTouchesTable)
+      .where(eq(fileTouchesTable.sessionId, sessionId))
+      .groupBy(fileTouchesTable.sessionAgentId)
+      .all();
+    for (const f of files) if (f.agentId) entry(f.agentId).filesTouched = Number(f.n) || 0;
+    const lastTools = db
+      .select({ agentId: eventsTable.sessionAgentId, payload: eventsTable.payload, ts: eventsTable.ts })
+      .from(eventsTable)
+      .where(
+        and(
+          eq(eventsTable.sessionId, sessionId),
+          eq(eventsTable.type, 'agent.tool.start'),
+          sql`${eventsTable.id} in (select max(id) from events where session_id = ${sessionId} and type = 'agent.tool.start' group by session_agent_id)`
+        )
+      )
+      .all();
+    for (const t of lastTools) {
+      if (!t.agentId) continue;
+      const p = JSON.parse(t.payload);
+      entry(t.agentId).lastTool = { tool: p.tool, input: p.input, ts: t.ts };
+    }
+    return out;
+  }
+
+  /** Agents, tree levels and last agent activity per session, in one query (Sessions page). */
+  public getSessionTreeStats(): Map<string, { agentCount: number; levels: number; lastActiveAt: number }> {
+    const rows = getDb()
+      .select({
+        sessionId: sessionAgentsTable.sessionId,
+        agentCount: sql<number>`count(*)`,
+        maxDepth: sql<number>`max(${sessionAgentsTable.depth})`,
+        lastActiveAt: sql<number>`max(${sessionAgentsTable.lastActiveAt})`,
+      })
+      .from(sessionAgentsTable)
+      .groupBy(sessionAgentsTable.sessionId)
+      .all();
+    return new Map(
+      rows.map((r) => [
+        r.sessionId,
+        { agentCount: Number(r.agentCount), levels: Number(r.maxDepth) + 1, lastActiveAt: Number(r.lastActiveAt) },
+      ])
+    );
   }
 
   public async getSessions(): Promise<Session[]> {

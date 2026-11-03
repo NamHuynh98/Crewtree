@@ -836,12 +836,12 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 - Kết quả: sinh prompt agent từ mô tả ngắn
 
 ### Phase 5 — Workspace UI (5 ngày)
-- [ ] Trang Sessions, dialog New session (dựng cây ban đầu, chọn Supervisor, nâng cao, 4 nhóm cấu hình)
-- [ ] Canvas React Flow, AgentNode (đủ các trạng thái gồm `queued`, `waiting_children`, `needs_input`, `suspended`), edges, elk layout, thu gọn nhánh, outline, minimap, context menu, kéo thả agent lên node
-- [ ] Chat Supervisor (tool chips focus node, câu hỏi "Needs your input"), Drawer 5 tab
-- [ ] Approval Inbox + inline (rule theo mẫu), cảnh báo xung đột file
-- [ ] Tab Files, File Viewer (View/Diff/chọn dòng/mention/VS Code), tab Changes (gồm `via Bash`)
-- [ ] Session settings: giới hạn, nhóm cấu hình, số tiến trình + RAM, checkpoint
+- [x] Trang Sessions, dialog New session (dựng cây ban đầu, chọn Supervisor, nâng cao, 4 nhóm cấu hình)
+- [x] Canvas React Flow, AgentNode (đủ các trạng thái gồm `queued`, `waiting_children`, `needs_input`, `suspended`), edges, elk layout, thu gọn nhánh, outline, minimap, context menu, kéo thả agent lên node
+- [x] Chat Supervisor (tool chips focus node, câu hỏi "Needs your input"), Drawer 5 tab
+- [x] Approval Inbox + inline (rule theo mẫu), cảnh báo xung đột file
+- [x] Tab Files, File Viewer (View/Diff/chọn dòng/mention/VS Code), tab Changes (gồm `via Bash`)
+- [x] Session settings: giới hạn, nhóm cấu hình, số tiến trình + RAM, checkpoint
 - Kết quả: trải nghiệm đầy đủ như wireframe
 
 ### Phase 6 — Claude Config Manager và Settings (4 ngày)

@@ -46,8 +46,19 @@
     "subtitle": "Quản lý và điều phối các session nhiều agent trên nền Claude Code",
     "emptyTitle": "Chưa có session nào",
     "emptyBody": "Tạo một session, chọn vài agent và giao mục tiêu cho Supervisor.",
-    "newTitle": "Session mới",
-    "titlePlaceholder": "Tên session (vd. Tính năng đăng nhập)"
+    "titlePlaceholder": "Tên session (vd. Tính năng đăng nhập)",
+    "search": "Tìm…",
+    "filter": "Lọc:",
+    "allStatuses": "Mọi trạng thái",
+    "allProjects": "Mọi project",
+    "agents_one": "{{count}} agent",
+    "agents_other": "{{count}} agent",
+    "levels_one": "{{count}} cấp",
+    "levels_other": "{{count}} cấp",
+    "rename": "Đổi tên",
+    "confirmDelete": "Xoá session",
+    "copyOf": "{{title}} (bản sao)",
+    "noMatch": "Không có session nào khớp bộ lọc."
   },
   "sessionStatus": {
     "active": "Đang mở",
@@ -58,14 +69,17 @@
   },
   "workspace": {
     "back": "Quay lại danh sách session",
-    "agentCount_other": "{{count}} agent",
-    "tokens": "{{count}} token",
-    "eventLog": "Nhật ký event",
-    "agentTree": "Cây agent",
-    "rateLimited": "Bị giới hạn tốc độ · thử lại sau {{seconds}} giây",
-    "suspendedHint": "Đã tạm tắt · tự chạy lại khi có task mới",
     "emptyChatTitle": "Giao một mục tiêu cho Supervisor.",
-    "emptyChatBody": "Supervisor sẽ lập kế hoạch và báo cáo lại tại đây."
+    "emptyChatBody": "Supervisor sẽ lập kế hoạch và báo cáo lại tại đây.",
+    "chatWith": "Chat · {{name}}",
+    "hide": "Ẩn",
+    "notFound": "Session này không còn tồn tại.",
+    "sessionSettings": "Session",
+    "tabs": {
+      "tree": "Cây",
+      "files": "File",
+      "changes": "Thay đổi"
+    }
   },
   "chat": {
     "placeholder": "Nhắn cho {{name}}…",
@@ -74,21 +88,22 @@
     "interrupt": "Ngắt",
     "turnEnded": "Lượt đã bị ngắt hoặc lỗi.",
     "agentError": "Agent lỗi: {{error}}",
-    "unknownError": "Lỗi không xác định",
     "toolDetails": "chi tiết",
-    "toolInput": "Đầu vào",
-    "toolOutput": "Kết quả",
     "queued": "đang chờ",
     "interruptAndSend": "Ngắt & gửi",
     "interruptAndSendNow": "Ngắt và gửi ngay",
     "withAttachments_one": "{{count}} tệp đính kèm",
     "withAttachments_other": "{{count}} tệp đính kèm",
-    "withReferencedCode": "Đoạn code được nhắc tới"
-  },
-  "eventLog": {
-    "title": "Nhật ký event trực tiếp",
-    "count_other": "{{count}} event",
-    "empty": "Chưa có event nào"
+    "withReferencedCode": "Đoạn code được nhắc tới",
+    "you": "Bạn",
+    "delegatedTo": "đã giao cho {{name}}: {{title}}",
+    "spawned": "đã tạo {{name}}",
+    "waitingResults": "đang chờ kết quả…",
+    "resultsReceived": "đã nhận kết quả",
+    "messaged": "nhắn cho {{name}}",
+    "completed": "đã hoàn thành task",
+    "askedParent": "đã hỏi agent cha",
+    "fromParent": "{{name}} (cha)"
   },
   "status": {
     "idle": "Rảnh",
@@ -116,27 +131,20 @@
     "save": "Lưu",
     "cancel": "Huỷ",
     "delete": "Xoá",
-    "create": "Tạo",
     "allowOnce": "Cho phép một lần",
     "alwaysAllow": "Luôn cho phép",
     "deny": "Từ chối",
     "edit": "Sửa",
-    "duplicate": "Nhân bản"
+    "duplicate": "Nhân bản",
+    "close": "Đóng"
   },
   "settingsSaveFailed": "Không lưu được cài đặt.",
   "retry": "Thử lại",
   "tree": {
-    "task": "Task",
-    "queuedTasks_other": "{{count}} task đang chờ",
-    "spawnedBy": "do {{name}} tạo",
-    "addAgent": "Thêm agent",
-    "parent": "Cha",
-    "pickAgent": "Chọn agent…"
+    "parent": "Cha"
   },
   "tasks": {
-    "title": "Tasks",
     "empty": "Chưa có task nào",
-    "fromUser": "Bạn → Supervisor",
     "cancel": "Huỷ task"
   },
   "taskStatus": {
@@ -164,8 +172,7 @@
     "resume": "Tiếp tục",
     "stop": "Dừng",
     "needsInput": "Cần bạn trả lời",
-    "answerHint": "Trả lời ngay trong ô chat bên dưới.",
-    "pausedBudget": "Tạm dừng: đã hết ngân sách token"
+    "answerHint": "Trả lời ngay trong ô chat bên dưới."
   },
   "notices": {
     "supervisorCreated": "Đã tạo crewtree-supervisor với {{model}}"
@@ -350,5 +357,187 @@
     "deny": "Từ chối",
     "placeholder": "Nhắn cho {{name}}…",
     "simulatedNote": "Việc giao việc trong sandbox là giả lập: không tạo agent con thật."
+  },
+  "addAgents": {
+    "title": "Thêm agent",
+    "search": "Tìm agent…",
+    "none": "Không có agent phù hợp",
+    "delegates": "giao việc",
+    "limited": "Agent cha này chỉ được giao việc cho: {{names}}",
+    "add_one": "Thêm ({{count}})",
+    "add_other": "Thêm ({{count}})"
+  },
+  "canvas": {
+    "outline": "Dàn ý",
+    "collapseAll": "Tất cả",
+    "expandAll": "Tất cả",
+    "fit": "Vừa khung",
+    "addAgents": "Thêm agent",
+    "library": "Agent",
+    "addEllipsis": "Thêm…",
+    "dragHint": "Kéo một agent thả lên node để gắn làm con.",
+    "tasks_one": "{{count}} task",
+    "tasks_other": "{{count}} task"
+  },
+  "changes": {
+    "empty": "Agent chưa sửa file nào.",
+    "summary_one": "{{count}} file",
+    "summary_other": "{{count}} file",
+    "task": "task: {{title}}",
+    "viaBash": "qua Bash",
+    "status": {
+      "added": "thêm mới",
+      "modified": "đã sửa",
+      "deleted": "đã xoá"
+    }
+  },
+  "conflict": {
+    "message": "{{agent}} định sửa {{path}} — đang bị {{holder}} khoá (task: {{task}}).",
+    "reported": "Đã chặn và báo cho agent cha.",
+    "view": "Xem",
+    "dismiss": "Bỏ qua"
+  },
+  "drawer": {
+    "title": "Agent {{name}}",
+    "expand": "Mở rộng",
+    "tabs": {
+      "activity": "Hoạt động",
+      "chat": "Chat",
+      "tasks": "Task",
+      "changes": "Thay đổi",
+      "config": "Cấu hình"
+    },
+    "loadOlder": "Tải cũ hơn ↑",
+    "noActivity": "Chưa có hoạt động.",
+    "runningFor": "đang chạy {{time}}…",
+    "throttled": "Bị giới hạn tốc độ",
+    "filterText": "Văn bản",
+    "filterTools": "Tool",
+    "errorsOnly": "Chỉ lỗi",
+    "parentNotified": "Tin nhắn ở đây đi thẳng tới agent này; agent cha thấy kết quả.",
+    "scope": "phạm vi",
+    "result": "Kết quả",
+    "showFull": "Xem đầy đủ",
+    "fromAgent": "từ {{name}}",
+    "fromYou": "từ bạn",
+    "agent": "Agent",
+    "openInEditor": "Mở trong Editor",
+    "resetOverride": "Bỏ ghi đè",
+    "overrideHint": "Chỉ áp dụng cho session này, từ lượt tiếp theo; file agent không đổi.",
+    "on": "bật",
+    "off": "tắt",
+    "enableForSession": "Bật cho session này",
+    "disableForSession": "Tắt cho session này",
+    "systemPrompt": "System prompt (bản chụp, chỉ đọc)",
+    "remove": "Gỡ khỏi session",
+    "removeConfirm": "Gỡ agent này và cả nhánh con?"
+  },
+  "files": {
+    "view": "Xem",
+    "diff": "Diff",
+    "compareWith": "So với",
+    "baseSession": "Trước session này",
+    "checkpoint": "Checkpoint #{{n}}",
+    "render": "Hiển thị",
+    "source": "Mã nguồn",
+    "openInVsCode": "Mở trong VS Code",
+    "editedBy": "{{agent}} đã sửa · {{time}}",
+    "noBase": "File không tồn tại ở mốc đã chọn (file mới).",
+    "mention": "Nhắc trong chat",
+    "copyPath": "Chép đường dẫn{{range}}",
+    "keysHint": "Ctrl+F tìm · Ctrl+G tới dòng · tự cập nhật khi file đổi",
+    "search": "Tìm file…",
+    "onlyChanged": "Chỉ file agent đã sửa",
+    "legend": "M đã sửa · A thêm mới · ● agent",
+    "pick": "Chọn một file để xem."
+  },
+  "inbox": {
+    "title": "Yêu cầu chờ duyệt ({{count}})",
+    "empty": "Không có gì đang chờ bạn."
+  },
+  "menu": {
+    "viewDetails": "Xem chi tiết",
+    "chat": "Chat",
+    "changeModel": "Đổi model (session này)",
+    "addChild": "Thêm agent con…",
+    "collapse": "Thu gọn nhánh",
+    "expand": "Mở rộng nhánh",
+    "stopTask": "Dừng task hiện tại",
+    "openInEditor": "Mở trong Agent Editor",
+    "remove": "Gỡ khỏi session",
+    "removeConfirm": "Bấm lần nữa để gỡ agent và cả nhánh con",
+    "modelHint": "Ghi đè cho session này"
+  },
+  "newSession": {
+    "title": "Session mới",
+    "name": "Tên session",
+    "cwd": "Thư mục làm việc",
+    "supervisor": "Supervisor",
+    "tree": "Cây agent ban đầu (đổi được sau)",
+    "treeEmpty": "Chỉ có Supervisor. Thêm agent bên dưới hoặc để nó tự tạo.",
+    "addAgent": "+ Thêm agent",
+    "addChild": "+ con",
+    "remove": "Bỏ {{name}}",
+    "agentDefault": "mặc định ({{model}})",
+    "advanced": "Nâng cao",
+    "create": "Tạo ▸",
+    "creating": "Đang tạo…",
+    "defaultTitle": "Session mới"
+  },
+  "node": {
+    "needsApproval": "Cần duyệt: {{tool}}",
+    "rateLimited": "Bị giới hạn tốc độ · thử lại sau {{seconds}}s",
+    "queued_one": "Đang xếp hàng · {{count}} agent đang chạy",
+    "queued_other": "Đang xếp hàng · {{count}} agent đang chạy",
+    "needsYourInput": "Cần bạn trả lời",
+    "questionFor": "Câu hỏi cho {{parent}}",
+    "waitingChildren": "Đang chờ {{done}}/{{total}} agent con",
+    "suspended": "Tạm nghỉ · chạy lại khi có task",
+    "error": "Lỗi — xem Hoạt động",
+    "thinking": "Đang suy nghĩ…",
+    "task": "Task",
+    "changeModel": "Đổi model cho session này",
+    "override": "Model ghi đè trong session",
+    "spawnedBy": "do {{name}} tạo",
+    "collapsed": "+{{count}} agent · {{running}} đang chạy",
+    "allow": "Cho phép",
+    "deny": "Từ chối",
+    "details": "Chi tiết",
+    "chat": "Chat",
+    "collapse": "Thu gọn nhánh",
+    "expand": "Mở rộng nhánh",
+    "turns_one": "{{count}} lượt",
+    "turns_other": "{{count}} lượt",
+    "files_one": "{{count}} file đã sửa",
+    "files_other": "{{count}} file đã sửa"
+  },
+  "sessionSettings": {
+    "title": "Cài đặt session",
+    "concurrent": "Đồng thời",
+    "maxDepth": "Độ sâu tối đa",
+    "maxTotal": "Tổng số agent",
+    "maxTokens": "Token tối đa",
+    "maxTurns": "Lượt tối đa/agent",
+    "config": "Cấu hình Claude Code:",
+    "groups": {
+      "claudemd": "CLAUDE.md",
+      "skillsPlugins": "Skills/Plugins",
+      "hooks": "Hooks",
+      "permissions": "Permissions"
+    },
+    "permissionsWarning": "Quy tắc quyền vẫn có hiệu lực khi CLAUDE.md hoặc Skills/Plugins đang bật (tool không khớp vẫn hỏi bạn).",
+    "idleSuspend": "Cho agent rảnh tạm nghỉ sau",
+    "minutes": "phút",
+    "checkpoint": "Git checkpoint trước mỗi lượt của Supervisor",
+    "applyHint": "Giới hạn áp dụng ngay; nhóm cấu hình áp dụng khi tiến trình agent khởi động lại.",
+    "usage": "Đã dùng: {{used}} / {{max}} token",
+    "usageDetail": "input {{input}} · output {{output}} · cache read {{cache}} (từ lúc mở)",
+    "processes": "Tiến trình: {{running}} đang chạy · {{suspended}} tạm nghỉ · {{ram}} RAM",
+    "ramHint": "RAM tính mọi tiến trình Claude Code do Crewtree chạy, ở mọi session.",
+    "checkpoints": "Checkpoint",
+    "noCheckpoints": "Chưa có checkpoint (bật Git checkpoint trong repo git).",
+    "restore": "Khôi phục",
+    "restoreConfirm": "Ghi đè các file đang được git theo dõi?",
+    "saved": "Đã lưu"
   }
 }

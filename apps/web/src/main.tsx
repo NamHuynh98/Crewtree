@@ -7,7 +7,8 @@ import '@fontsource-variable/jetbrains-mono';
 import './index.css';
 import './i18n';
 import { AppShell } from './app/AppShell';
-import { SessionsPage } from './pages/SessionsPage';
+import { SessionsListPage } from './pages/SessionsListPage';
+import { WorkspacePage } from './pages/WorkspacePage';
 import { AgentsPage } from './pages/AgentsPage';
 import { AgentEditorPage } from './pages/AgentEditorPage';
 import { ComingSoonPage, ResourceListPage } from './pages/ResourceListPage';
@@ -19,8 +20,8 @@ const router = createBrowserRouter([
     path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: <SessionsPage /> },
-      { path: 'sessions/:id', element: <SessionsPage /> },
+      { index: true, element: <SessionsListPage /> },
+      { path: 'sessions/:id', element: <WorkspacePage /> },
       { path: 'agents', element: <AgentsPage /> },
       { path: 'agents/new', element: <AgentEditorPage key="new" /> },
       { path: 'agents/:id', element: <AgentEditorPage /> },

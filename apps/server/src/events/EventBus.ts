@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { AgentEvent } from '@crewtree/shared';
 import { getDb } from '../db/index.js';
 import { eventsTable } from '../db/schema.js';
-import { gt, and, eq, asc } from 'drizzle-orm';
+import { gt, lt, and, eq, asc, desc } from 'drizzle-orm';
 
 export interface WsSocket {
   readyState: number;
@@ -180,13 +180,36 @@ export class EventBus extends EventEmitter {
       .orderBy(asc(eventsTable.id));
     const rows = opts.limit ? query.limit(opts.limit).all() : query.all();
 
-    return rows.map((r) => ({
-      id: r.id,
-      sessionId: r.sessionId,
-      sessionAgentId: r.sessionAgentId,
-      type: r.type as any,
-      payload: JSON.parse(r.payload),
-      ts: r.ts,
-    }));
+    return rows.map(rowToEvent);
   }
+
+  /** The `limit` most recent events before `beforeId` (oldest first): Activity "Load older". */
+  public getEventsBefore(
+    sessionId: string,
+    beforeId: number,
+    opts: { sessionAgentId?: string; limit?: number } = {}
+  ): AgentEvent[] {
+    const conditions = [eq(eventsTable.sessionId, sessionId), lt(eventsTable.id, beforeId)];
+    if (opts.sessionAgentId) conditions.push(eq(eventsTable.sessionAgentId, opts.sessionAgentId));
+    return getDb()
+      .select()
+      .from(eventsTable)
+      .where(and(...conditions))
+      .orderBy(desc(eventsTable.id))
+      .limit(opts.limit ?? 200)
+      .all()
+      .reverse()
+      .map(rowToEvent);
+  }
+}
+
+function rowToEvent(r: typeof eventsTable.$inferSelect): AgentEvent {
+  return {
+    id: r.id,
+    sessionId: r.sessionId,
+    sessionAgentId: r.sessionAgentId,
+    type: r.type as any,
+    payload: JSON.parse(r.payload),
+    ts: r.ts,
+  };
 }

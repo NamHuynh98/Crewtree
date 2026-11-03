@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import fs from 'fs';
 import { composeMessage } from '../uploads/composeMessage.js';
+import { listChanges } from '../files/SessionChanges.js';
+import { childProcessStats } from '../runtime/processStats.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { ApprovalDecisionSchema, type ApprovalStatus } from '@crewtree/shared';
 import { SessionService } from '../sessions/SessionService.js';
@@ -42,9 +44,19 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
 
   // ---------------------------------------------------------------- sessions
 
-  fastify.get('/api/sessions', async () =>
-    (await sessions.getSessions()).map((s) => ({ ...s, activity: sessions.getSessionActivity(s.id) }))
-  );
+  // Sessions page rows: agents, tree depth, last activity (UI-WIREFRAMES 0)
+  fastify.get('/api/sessions', async () => {
+    const stats = sessions.getSessionTreeStats();
+    return (await sessions.getSessions())
+      .map((s) => ({
+        ...s,
+        activity: sessions.getSessionActivity(s.id),
+        agentCount: stats.get(s.id)?.agentCount ?? 0,
+        levels: stats.get(s.id)?.levels ?? 0,
+        lastActiveAt: Math.max(s.updatedAt, stats.get(s.id)?.lastActiveAt ?? 0),
+      }))
+      .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+  });
 
   fastify.post('/api/sessions', async (req, reply) => {
     const body = (req.body ?? {}) as {
@@ -110,6 +122,7 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
       tasks: sessions.getSessionTasks(id),
       messages: await sessions.getSessionMessages(id),
       approvals: approvals.list('pending').filter((a) => a.sessionId === id),
+      agentStats: sessions.getAgentStats(id),
       runningProcesses: sessions.getRunningProcessCount(id),
       runningAgents: sessions.limiter.runningCount(id),
     };
@@ -139,11 +152,15 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
 
   fastify.get('/api/sessions/:id/events', async (req) => {
     const { id } = req.params as { id: string };
-    const { after, agent, limit } = req.query as { after?: string; agent?: string; limit?: string };
-    return eventBus.getEventsAfter(id, parseInt(after || '0', 10) || 0, {
-      sessionAgentId: agent,
-      limit: Math.min(parseInt(limit || '500', 10) || 500, 2000),
-    });
+    const { after, before, agent, limit } = req.query as {
+      after?: string;
+      before?: string;
+      agent?: string;
+      limit?: string;
+    };
+    const opts = { sessionAgentId: agent, limit: Math.min(parseInt(limit || '500', 10) || 500, 2000) };
+    if (before) return eventBus.getEventsBefore(id, parseInt(before, 10) || 0, opts);
+    return eventBus.getEventsAfter(id, parseInt(after || '0', 10) || 0, opts);
   });
 
   // ---------------------------------------------------------------- tree
@@ -250,6 +267,33 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
     return handle(reply, () => ({ cancelled: sessions.cancelTask(id, tid, reason || 'Cancelled by the user') }));
   });
 
+  // Files changed by the session's agents (tab Changes, drawer Changes; PLAN.md 9)
+  fastify.get('/api/sessions/:id/changes', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { agent } = req.query as { agent?: string };
+    return handle(reply, async () => {
+      const session = sessions.getSession(id);
+      if (!session) throw new Error('Session not found');
+      return listChanges(id, session.cwd, agent);
+    });
+  });
+
+  // Session settings "Processes … RAM" (UI-WIREFRAMES 2)
+  fastify.get('/api/sessions/:id/processes', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    return handle(reply, async () => {
+      if (!sessions.getSession(id)) throw new Error('Session not found');
+      const agents = await sessions.getSessionAgents(id);
+      const statusOf = (a: (typeof agents)[number]) => sessions.peekRuntime(a.id)?.getStatus() ?? a.status;
+      return {
+        running: sessions.getRunningProcessCount(id),
+        suspended: agents.filter((a) => statusOf(a) === 'suspended').length,
+        // Every Claude Code process Crewtree started, across sessions
+        all: await childProcessStats(),
+      };
+    });
+  });
+
   // ---------------------------------------------------------------- checkpoints (PLAN.md 5.4)
 
   fastify.get('/api/sessions/:id/checkpoints', async (req, reply) => {
@@ -277,7 +321,15 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
 
   fastify.get('/api/approvals', async (req) => {
     const { status } = req.query as { status?: ApprovalStatus };
-    return approvals.list(status);
+    // Approval Inbox rows name the agent and the session (UI-WIREFRAMES 5)
+    return approvals.list(status).map((a) => {
+      const agent = sessions.getAgent(a.sessionAgentId);
+      return {
+        ...a,
+        agentName: agent ? agent.alias || agent.agentName : undefined,
+        sessionTitle: sessions.getSession(a.sessionId)?.title,
+      };
+    });
   });
 
   fastify.post('/api/approvals/:id', async (req, reply) => {

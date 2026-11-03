@@ -145,6 +145,17 @@ export class FileIndex {
     return index;
   }
 
+  /** Direct children of `dir` ('' = root), folders first: lazy tree of the Files tab. */
+  public async children(root: string, dir: string): Promise<{ entries: IndexEntry[]; truncated: boolean }> {
+    const index = await this.get(root);
+    const prefix = dir ? `${dir.replace(/\\/g, '/').replace(/\/$/, '')}/` : '';
+    const entries = index.entries.filter(
+      (e) => e.path.startsWith(prefix) && !e.path.slice(prefix.length).includes('/')
+    );
+    entries.sort((a, b) => (a.type === b.type ? a.path.localeCompare(b.path) : a.type === 'dir' ? -1 : 1));
+    return { entries, truncated: index.truncated };
+  }
+
   public invalidate(root?: string) {
     if (root) this.roots.delete(root);
     else this.roots.clear();

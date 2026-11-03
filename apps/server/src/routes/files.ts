@@ -5,7 +5,10 @@ import { desc, eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { fileTouchesTable, sessionAgentsTable } from '../db/schema.js';
 import { FileIndex } from '../files/FileIndex.js';
-import { readFileView, resolveWorkspaceRoot } from '../files/safeFiles.js';
+import fs from 'fs';
+import path from 'path';
+import { isInside, readFileView, resolveReadablePath, resolveWorkspaceRoot } from '../files/safeFiles.js';
+import { fileDiff, type DiffBase } from '../files/SessionChanges.js';
 import { MAX_PDF_BYTES, SCRATCH_SCOPE, UploadService } from '../uploads/UploadService.js';
 
 async function handle<T>(reply: FastifyReply, fn: () => Promise<T> | T): Promise<T | undefined> {
@@ -24,6 +27,17 @@ async function handle<T>(reply: FastifyReply, fn: () => Promise<T> | T): Promise
     return undefined;
   }
 }
+
+const IMAGE_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.bmp': 'image/bmp',
+};
 
 export interface FsSearchItem {
   path: string;
@@ -85,7 +99,59 @@ export function registerFileRoutes(fastify: FastifyInstance) {
     });
   });
 
-  // Read-only file content for the `#` line picker (and the File Viewer, Phase 5)
+  // Lazy file tree of the Files tab (PLAN.md 9)
+  fastify.get('/api/fs/tree', async (req, reply) => {
+    const { dir = '', cwd, sessionId } = req.query as { dir?: string; cwd?: string; sessionId?: string };
+    return handle(reply, async () => {
+      const root = resolveWorkspaceRoot({ cwd, sessionId });
+      if (dir.split(/[\\/]/).includes('..')) throw new Error('Path is outside the allowed folders');
+      return { root, ...(await FileIndex.getInstance().children(root, dir)) };
+    });
+  });
+
+  // File Viewer diff: HEAD, a checkpoint, or the content before the session first touched it (PLAN.md 9)
+  fastify.get('/api/fs/diff', async (req, reply) => {
+    const {
+      path: p,
+      cwd,
+      sessionId,
+      base = 'session',
+    } = req.query as {
+      path?: string;
+      cwd?: string;
+      sessionId?: string;
+      base?: string;
+    };
+    return handle(reply, async () => {
+      if (!p) throw new Error('path is required');
+      if (!/^(session|head|checkpoint:\d+)$/.test(base)) throw new Error('Invalid diff base');
+      const root = resolveWorkspaceRoot({ cwd, sessionId });
+      const abs = resolveReadablePath(root, p);
+      if (!isInside(abs, root)) throw new Error('Diffs are only available inside the working directory');
+      const rel = path.relative(root, abs).replace(/\\/g, '/');
+      return { path: rel, ...(await fileDiff(sessionId, root, rel, base as DiffBase)) };
+    });
+  });
+
+  // Image preview in the File Viewer (PLAN.md 9). Images only, so no arbitrary file is served raw.
+  fastify.get('/api/fs/raw', async (req, reply) => {
+    const { path: p, cwd, sessionId } = req.query as { path?: string; cwd?: string; sessionId?: string };
+    return handle(reply, async () => {
+      if (!p) throw new Error('path is required');
+      const abs = resolveReadablePath(resolveWorkspaceRoot({ cwd, sessionId }), p);
+      const type = IMAGE_TYPES[path.extname(abs).toLowerCase()];
+      if (!type) throw new Error('Only images can be previewed');
+      const stat = fs.statSync(abs, { throwIfNoEntry: false });
+      if (!stat?.isFile()) throw new Error('File not found');
+      if (stat.size > 10 * 1024 * 1024) throw new Error('Image is too large to preview');
+      reply
+        .header('Content-Type', type)
+        .header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+      return reply.send(fs.createReadStream(abs));
+    });
+  });
+
+  // Read-only file content for the `#` line picker and the File Viewer
   fastify.get('/api/fs/file', async (req, reply) => {
     const { path: p, cwd, sessionId } = req.query as { path?: string; cwd?: string; sessionId?: string };
     return handle(reply, () => {

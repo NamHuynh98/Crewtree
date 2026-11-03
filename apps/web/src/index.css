@@ -27,6 +27,7 @@
   }
 
   .dark {
+    color-scheme: dark;
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
     --card: 240 10% 3.9%;
@@ -46,6 +47,13 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 239 84% 67%;
+  }
+
+  /* Borders follow the theme token unless a colour is given (shadcn base) */
+  *,
+  ::before,
+  ::after {
+    border-color: hsl(var(--border));
   }
 
   body {
@@ -72,4 +80,16 @@
 }
 .composer-chip-slash {
   @apply border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400;
+}
+
+/* Canvas: running task edges (UI-WIREFRAMES 2) */
+@keyframes crewtree-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+.react-flow__node-agent {
+  padding: 0;
+  border: 0;
+  background: transparent;
 }

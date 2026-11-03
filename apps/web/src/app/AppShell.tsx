@@ -18,6 +18,7 @@ import { ThemeMenu, LanguageMenu } from '@/components/HeaderMenus';
 import { ClaudeStatus, type ClaudeStatusInfo } from '@/components/ClaudeStatus';
 import { ShellContext, type ProjectInfo } from './shell';
 import { ProjectSwitcher } from './ProjectSwitcher';
+import { ApprovalInbox } from './ApprovalInbox';
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition ${
@@ -162,17 +163,7 @@ export function AppShell() {
           </div>
 
           <div className="flex items-center gap-2 text-sm">
-            <div
-              className={`flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md border ${
-                pendingApprovals > 0
-                  ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800'
-                  : 'text-muted-foreground border-border'
-              }`}
-              title={t('header.pendingTitle')}
-            >
-              <span aria-hidden>⚑</span>
-              <span>{t('header.pending', { count: pendingApprovals })}</span>
-            </div>
+            <ApprovalInbox count={pendingApprovals} onChanged={refreshApprovals} />
             <ThemeMenu value={themeSetting} onChange={changeTheme} />
             <LanguageMenu value={(i18n.language as LanguageSetting) ?? 'en'} onChange={changeLanguage} />
             <NavLink

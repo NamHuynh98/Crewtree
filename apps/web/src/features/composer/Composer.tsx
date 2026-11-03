@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
@@ -38,6 +38,12 @@ import {
   type SuggestionItem,
 } from './types';
 
+/** Imperative handle: insert a file chip from outside (File Viewer "Mention in chat"). */
+export interface ComposerHandle {
+  insertFile: (path: string, range?: { start: number; end: number }) => void;
+  focus: () => void;
+}
+
 export interface ComposerProps {
   ctx: ComposerContext;
   onSend: (payload: ComposerSendPayload) => void | Promise<unknown>;
@@ -61,6 +67,7 @@ export interface ComposerProps {
   autoFocus?: boolean;
   /** Clear the text and attachments after sending (off in AI Generate, so a description can be rerun) */
   clearOnSend?: boolean;
+  handleRef?: React.Ref<ComposerHandle>;
 }
 
 interface PopupState {
@@ -107,6 +114,7 @@ export function Composer({
   onChange,
   autoFocus,
   clearOnSend = true,
+  handleRef,
 }: ComposerProps) {
   const { t } = useTranslation();
   const [popup, setPopup] = useState<PopupState | null>(null);
@@ -302,6 +310,25 @@ export function Composer({
     autofocus: autoFocus ? 'end' : false,
   });
   editorRef.current = editor;
+
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      insertFile: (path, range) => {
+        const id = chipId({ kind: 'file', value: path, range });
+        editorRef.current
+          ?.chain()
+          .focus('end')
+          .insertContent([
+            { type: 'mention', attrs: { id, label: chipLabel(id), mentionSuggestionChar: '@' } },
+            { type: 'text', text: ' ' },
+          ])
+          .run();
+      },
+      focus: () => editorRef.current?.commands.focus('end'),
+    }),
+    []
+  );
 
   // Report changes for parent-driven submit (AI Generate)
   useEffect(() => {
@@ -546,11 +573,14 @@ export function Composer({
           </Button>
         )}
         {target && (
-          <span className="ml-2 truncate text-[11px] text-muted-foreground">
+          <span className="ml-2 min-w-0 truncate text-[11px] text-muted-foreground">
             {t('composer.sendTo', { name: target })}
           </span>
         )}
-        <span className="ml-auto hidden text-[10px] text-muted-foreground sm:inline">{t('composer.keysHint')}</span>
+        {/* With a target the footer is tight: the key hint moves to the send button tooltip */}
+        <span className="ml-auto shrink-0 whitespace-nowrap text-[10px] text-muted-foreground">
+          {!target && t('composer.keysHint')}
+        </span>
         {!hideSend && (
           <>
             {busy && (
@@ -586,7 +616,7 @@ export function Composer({
               className="h-7 w-7"
               disabled={!canSend}
               onClick={() => submit('queue')}
-              title={t('chat.send')}
+              title={`${t('chat.send')} · ${t('composer.keysHint')}`}
               aria-label={t('chat.send')}
             >
               <Send />
