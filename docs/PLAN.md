@@ -829,10 +829,10 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 - Kết quả: agent sẵn có trong `~/.claude/agents` hiện đủ; tạo/sửa ghi đúng file
 
 ### Phase 4 — Composer và AI Generate (3 ngày)
-- [ ] `<Composer>`: TipTap, chip, `@file`, `#dòng`, `@agent`, `/`, đính kèm, dán ảnh, trạng thái `queued`, nút Interrupt & send
-- [ ] fs search index, `/api/uploads`
-- [ ] `<AiGeneratePanel>` + `/api/generate/agent` (generate/improve, diff, apply; meta-prompt Phụ lục A.4)
-- [ ] Try it trong Agent Editor
+- [x] `<Composer>`: TipTap, chip, `@file`, `#dòng`, `@agent`, `/`, đính kèm, dán ảnh, trạng thái `queued`, nút Interrupt & send
+- [x] fs search index, `/api/uploads`
+- [x] `<AiGeneratePanel>` + `/api/generate/agent` (generate/improve, diff, apply; meta-prompt Phụ lục A.4)
+- [x] Try it trong Agent Editor
 - Kết quả: sinh prompt agent từ mô tả ngắn
 
 ### Phase 5 — Workspace UI (5 ngày)

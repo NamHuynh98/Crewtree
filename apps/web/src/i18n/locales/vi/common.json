@@ -79,7 +79,11 @@
     "toolInput": "Đầu vào",
     "toolOutput": "Kết quả",
     "queued": "đang chờ",
-    "interruptAndSend": "Ngắt & gửi"
+    "interruptAndSend": "Ngắt & gửi",
+    "interruptAndSendNow": "Ngắt và gửi ngay",
+    "withAttachments_one": "{{count}} tệp đính kèm",
+    "withAttachments_other": "{{count}} tệp đính kèm",
+    "withReferencedCode": "Đoạn code được nhắc tới"
   },
   "eventLog": {
     "title": "Nhật ký event trực tiếp",
@@ -236,7 +240,6 @@
     "systemPrompt": "System prompt",
     "generate": "Tạo bằng AI",
     "tryIt": "Chạy thử",
-    "comingPhase4": "Có ở Phase 4",
     "mdFile": "File .md",
     "history": "Lịch sử",
     "invalidYaml": "Frontmatter không hợp lệ: {{error}}",
@@ -286,5 +289,66 @@
     "nCommands_other": "{{count}} lệnh",
     "nMcp_other": "{{count}} MCP",
     "comingPhase6": "Trang này có ở Phase 6."
+  },
+  "composer": {
+    "placeholder": "Nhập tin nhắn…",
+    "loading": "Đang tải…",
+    "binaryFile": "File nhị phân — không xem trước được.",
+    "fileTooLarge": "File lớn hơn 2 MB — không xem trước được.",
+    "lineRange": "Khoảng dòng",
+    "lineHint": "Kéo hoặc shift-click để chọn dòng, hoặc gõ 10-24",
+    "insertLines": "Chèn {{range}}",
+    "insertFile": "Chèn file",
+    "noMatches": "Không có kết quả",
+    "group": {
+      "recent": "Gần đây",
+      "files": "File",
+      "agents": "Agent",
+      "skill": "Skill",
+      "command": "Command"
+    },
+    "mentionHint": "↑↓ chọn · Enter chèn · gõ #10-24 để chọn dòng · Tab xem trước",
+    "slashHint": "↑↓ chọn · Enter chèn",
+    "removeAttachment": "Bỏ {{name}}",
+    "attach": "Đính kèm file",
+    "mention": "Nhắc tới file hoặc agent",
+    "slash": "Skill hoặc command",
+    "sendTo": "Gửi tới: {{name}}",
+    "keysHint": "Enter gửi · Shift+Enter xuống dòng"
+  },
+  "aiGenerate": {
+    "describe": "Mô tả agent bạn muốn…",
+    "placeholder": "Một lead dev cho dự án NestJS, chia việc theo module…",
+    "outputLanguage": "Ngôn ngữ đầu ra: {{language}}",
+    "followInterface": "Theo giao diện ({{language}})",
+    "lang": {
+      "en": "Tiếng Anh",
+      "vi": "Tiếng Việt"
+    },
+    "generateNew": "Tạo mới",
+    "improve": "Cải thiện prompt hiện tại",
+    "stop": "Dừng",
+    "streaming": "Kết quả (đang sinh)",
+    "result": "Kết quả",
+    "tools": "tool gợi ý",
+    "viewDiff": "Xem diff với bản hiện tại",
+    "hideDiff": "Ẩn diff",
+    "apply": "Áp dụng",
+    "applyHint": "Áp dụng sẽ điền vào form; xem diff rồi bấm Lưu để ghi file."
+  },
+  "tryIt": {
+    "sandbox": "Sandbox",
+    "allowWrites": "Cho phép ghi file",
+    "allowWritesHint": "Tắt: agent chạy ở plan mode, không sửa được file.",
+    "reset": "Đặt lại",
+    "stale": "Agent hoặc cài đặt sandbox đã đổi — bấm Đặt lại để thử bản mới.",
+    "empty": "Gửi một tin nhắn để thử {{name}} trong thư mục đã chọn.",
+    "permission": "{{tool}} muốn chạy",
+    "allowed": "Đã cho phép",
+    "denied": "Đã từ chối",
+    "allowOnce": "Cho phép lần này",
+    "deny": "Từ chối",
+    "placeholder": "Nhắn cho {{name}}…",
+    "simulatedNote": "Việc giao việc trong sandbox là giả lập: không tạo agent con thật."
   }
 }

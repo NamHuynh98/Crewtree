@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { parseDocument } from 'yaml';
+import { CLAUDE_CODE_TOOLS } from '@crewtree/shared';
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)([\s\S]*)$/;
 
@@ -90,16 +91,5 @@ export function newAgentTemplate(name = 'new-agent'): string {
 }
 
 /** Claude Code built-in tools offered in the editor (UI-WIREFRAMES 8). */
-export const EDITOR_TOOLS = [
-  'Read',
-  'Grep',
-  'Glob',
-  'Edit',
-  'Write',
-  'MultiEdit',
-  'Bash',
-  'WebFetch',
-  'WebSearch',
-  'NotebookEdit',
-];
+export const EDITOR_TOOLS: readonly string[] = CLAUDE_CODE_TOOLS;
 export const AGENT_COLORS = ['violet', 'blue', 'cyan', 'green', 'yellow', 'orange', 'red', 'pink'];

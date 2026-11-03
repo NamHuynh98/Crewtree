@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Runtime prompt additions of PLAN.md Appendix A.2 / A.3. Never written to the agent's .md file.
+import { describeTaskFile } from '../uploads/composeMessage.js';
 
 /** A.2 — every delegating node */
 export const DELEGATION_RULES = `You can delegate. Rules:
@@ -37,7 +38,7 @@ export function taskMessage(task: TaskPromptInput): string {
     `[Crewtree task ${task.id}] Your parent: ${task.parentName}. Your current task: ${task.title}.`,
     `Scope: ${task.scope.length ? task.scope.join(', ') : '(none declared — ask_parent before editing files)'}`,
   ];
-  if (task.files.length) lines.push(`Attached files: ${task.files.join(', ')}`);
+  if (task.files.length) lines.push('Attached files:', ...task.files.map(describeTaskFile));
   lines.push('', task.instructions, '', 'When finished call complete_task; if blocked call ask_parent.');
   return lines.join('\n');
 }

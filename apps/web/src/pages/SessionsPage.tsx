@@ -10,7 +10,6 @@ import {
   Plus,
   Play,
   ArrowLeft,
-  Send,
   Loader2,
   Wrench,
   Coins,
@@ -27,6 +26,9 @@ import { AgentTree } from '@/components/workspace/AgentTree';
 import { TaskList } from '@/components/workspace/TaskList';
 import { ApprovalList, ApprovalDecisionInput } from '@/components/workspace/ApprovalList';
 import { Button } from '@/components/ui/button';
+import { Composer } from '@/features/composer/Composer';
+import { UserMessageText, previewComposerText } from '@/features/composer/MessageText';
+import type { ComposerSendPayload } from '@/features/composer/types';
 
 interface ChatMessage {
   id: string;
@@ -83,7 +85,6 @@ export function SessionsPage() {
 
   // Chat & Realtime State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [inputMessage, setInputMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [throttledRetryMs, setThrottledRetryMs] = useState<number | null>(null);
   const [usageStats, setUsageStats] = useState<UsageStats>({
@@ -190,9 +191,12 @@ export function SessionsPage() {
       const messageId = event.payload.messageId as string | undefined;
       const queued = event.payload.delivery === 'queued' && !opts.history;
       setMessages((prev) => {
-        const pendingIdx = prev.findIndex((m) => m.pending && m.role === 'user' && m.content === text);
+        // The server sends the composed text (chips expanded), so match the oldest pending message
+        const pendingIdx = prev.findIndex((m) => m.pending && m.role === 'user');
         if (pendingIdx >= 0) {
-          return prev.map((m, i) => (i === pendingIdx ? { ...m, pending: false, messageId, queued } : m));
+          return prev.map((m, i) =>
+            i === pendingIdx ? { ...m, content: text, pending: false, messageId, queued } : m
+          );
         }
         return [...prev, { id: messageId ?? nextKey('user'), messageId, role: 'user', content: text, queued }];
       });
@@ -416,33 +420,30 @@ export function SessionsPage() {
   };
 
   /** Messages to a busy Supervisor are queued; `interrupt` stops its turn first (PLAN.md 4.3). */
-  const sendMessage = async (mode: 'queue' | 'interrupt') => {
-    if (!inputMessage.trim() || !selectedSessionId) return;
+  const sendMessage = async ({ text, attachments, mode }: ComposerSendPayload) => {
+    if (!selectedSessionId) return;
     if ('Notification' in window && Notification.permission === 'default') void Notification.requestPermission();
 
-    const userText = inputMessage.trim();
-    setInputMessage('');
+    const key = nextKey();
+    const preview = [previewComposerText(text), ...(attachments.length ? [`📎 ×${attachments.length}`] : [])]
+      .filter(Boolean)
+      .join('\n');
     setActionError(null);
-    setMessages((prev) => [...prev, { id: nextKey(), role: 'user', content: userText, pending: true }]);
+    setMessages((prev) => [...prev, { id: key, role: 'user', content: preview, pending: true }]);
     try {
       const res = await fetch(`/api/sessions/${selectedSessionId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: userText, mode }),
+        body: JSON.stringify({ content: text, attachments, mode }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setActionError(body.error ?? res.statusText);
-        setMessages((prev) => prev.filter((m) => !(m.pending && m.content === userText)));
+        setMessages((prev) => prev.filter((m) => m.id !== key));
       }
     } catch (err) {
       console.error('Failed to send message', err);
     }
-  };
-
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    void sendMessage('queue');
   };
 
   const postAction = async (url: string, body?: unknown): Promise<string | null> => {
@@ -730,11 +731,18 @@ export function SessionsPage() {
                             (m.role === 'assistant' ? (
                               <Markdown>{m.content}</Markdown>
                             ) : (
-                              <div className="whitespace-pre-wrap">{m.content}</div>
+                              <UserMessageText text={m.content} />
                             ))}
                           {m.queued && (
-                            <div className="mt-1 text-[10px] uppercase tracking-wider opacity-75">
+                            <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-wider opacity-75">
                               {t('chat.queued')}
+                              <button
+                                type="button"
+                                className="rounded border border-current px-1.5 py-px normal-case tracking-normal hover:opacity-100"
+                                onClick={() => void handleInterrupt()}
+                              >
+                                {t('chat.interruptAndSendNow')}
+                              </button>
                             </div>
                           )}
                           {m.isStreaming && (
@@ -833,49 +841,19 @@ export function SessionsPage() {
                 </div>
               )}
 
-              {/* Input Bar (the shared Composer of UI-WIREFRAMES 3 arrives in Phase 4) */}
-              <form onSubmit={handleSendMessage} className="p-3 border-t border-border bg-card flex items-center gap-2">
-                <input
-                  type="text"
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
+              {/* Composer (UI-WIREFRAMES 3) */}
+              <div className="border-t border-border bg-card p-3">
+                <Composer
+                  key={selectedSessionId}
+                  ctx={{ sessionId: selectedSessionId }}
+                  agents={agents.map((a) => a.alias || a.agentName)}
                   placeholder={t('chat.placeholder', { name: supervisorName })}
-                  className="flex-1 px-3 py-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                  target={supervisorName}
+                  busy={isStreaming}
+                  onStop={() => void handleInterrupt()}
+                  onSend={sendMessage}
                 />
-                <Button
-                  type="submit"
-                  size="icon"
-                  disabled={!inputMessage.trim()}
-                  title={t('chat.send')}
-                  aria-label={t('chat.send')}
-                >
-                  <Send />
-                </Button>
-                {isStreaming && (
-                  <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-9 text-[11px]"
-                      disabled={!inputMessage.trim()}
-                      onClick={() => void sendMessage('interrupt')}
-                    >
-                      {t('chat.interruptAndSend')}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="destructive"
-                      onClick={handleInterrupt}
-                      title={t('chat.interrupt')}
-                      aria-label={t('chat.interrupt')}
-                    >
-                      <Square />
-                    </Button>
-                  </>
-                )}
-              </form>
+              </div>
             </div>
 
             {/* Live Event Log Panel (dev only) */}

@@ -70,3 +70,17 @@ export const DEFAULT_MAX_TURNS_PER_AGENT = 60;
 export const DEFAULT_MAX_TOKENS_PER_SESSION = 500_000;
 export const DEFAULT_IDLE_SUSPEND_MINUTES = 5;
 export const DEFAULT_EVENTS_RETENTION_DAYS = 30;
+
+/** Claude Code built-in tools an agent definition may list (Agent Editor, AI Generate). */
+export const CLAUDE_CODE_TOOLS = [
+  'Read',
+  'Grep',
+  'Glob',
+  'Edit',
+  'Write',
+  'MultiEdit',
+  'Bash',
+  'WebFetch',
+  'WebSearch',
+  'NotebookEdit',
+] as const;

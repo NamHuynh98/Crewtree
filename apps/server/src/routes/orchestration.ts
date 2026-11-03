@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import fs from 'fs';
+import { composeMessage } from '../uploads/composeMessage.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { ApprovalDecisionSchema, type ApprovalStatus } from '@crewtree/shared';
 import { SessionService } from '../sessions/SessionService.js';
@@ -181,14 +182,22 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
   // ---------------------------------------------------------------- messages
 
   const sendMessage = (sessionId: string, agentId: string | undefined, body: any, reply: FastifyReply) => {
-    const { content, mode } = (body ?? {}) as { content?: string; mode?: 'queue' | 'interrupt' };
-    if (!content) {
+    const { content, mode, attachments } = (body ?? {}) as {
+      content?: string;
+      mode?: 'queue' | 'interrupt';
+      attachments?: string[];
+    };
+    if (!content?.trim() && !attachments?.length) {
       reply.code(400).send({ error: 'Message content is required' });
       return;
     }
-    return handle(reply, () =>
-      sessions.sendUserMessage(sessionId, agentId, content, mode === 'interrupt' ? 'interrupt' : 'queue')
-    );
+    return handle(reply, () => {
+      const session = sessions.getSession(sessionId);
+      if (!session) throw new Error(`Session ${sessionId} not found`);
+      // Composer chips and attachments become explicit text (PLAN.md 8)
+      const text = composeMessage({ text: content ?? '', attachments }, session.cwd);
+      return sessions.sendUserMessage(sessionId, agentId, text, mode === 'interrupt' ? 'interrupt' : 'queue');
+    });
   };
 
   fastify.post('/api/sessions/:id/messages', async (req, reply) => {

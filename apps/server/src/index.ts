@@ -22,6 +22,10 @@ import { EventBus } from './events/EventBus.js';
 import { getAppSettings } from './settings/appSettings.js';
 import { registerOrchestrationRoutes } from './routes/orchestration.js';
 import { registerResourceRoutes } from './routes/resources.js';
+import { registerFileRoutes } from './routes/files.js';
+import { registerGenerateRoutes } from './routes/generate.js';
+import { registerTryItRoutes } from './routes/tryit.js';
+import { TryItService } from './tryit/TryItService.js';
 import { ResourceWatcher } from './resources/ResourceWatcher.js';
 import { ProjectService } from './projects/ProjectService.js';
 import { ensureDefaultSupervisor } from './resources/agents/defaultSupervisor.js';
@@ -212,6 +216,9 @@ export async function createServer() {
 
   registerOrchestrationRoutes(fastify);
   registerResourceRoutes(fastify);
+  registerFileRoutes(fastify);
+  registerGenerateRoutes(fastify);
+  registerTryItRoutes(fastify);
 
   let shuttingDown = false;
   const shutdown = async () => {
@@ -219,6 +226,7 @@ export async function createServer() {
     shuttingDown = true;
     clearInterval(heartbeat);
     await sessionService.disposeAll();
+    await TryItService.getInstance().disposeAll();
     await ResourceWatcher.getInstance().stop();
     await fastify.close();
     closeDb();

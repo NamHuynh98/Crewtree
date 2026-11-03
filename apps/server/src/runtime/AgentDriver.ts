@@ -44,6 +44,8 @@ export interface DriverOptions {
   mcpServers?: Record<string, any>;
   claudeConfig?: ClaudeConfigOptions;
   hooks?: DriverToolHooks;
+  /** Claude Code permission mode; Try it uses `plan` when file writes are off (PLAN.md 6.4). Never bypassPermissions. */
+  permissionMode?: 'default' | 'plan' | 'acceptEdits';
   /** Max agentic turns per user message (session/agent limit) */
   maxTurns?: number;
   /** The same tools as `mcpServers.crewtree`, callable directly (FakeDriver) */

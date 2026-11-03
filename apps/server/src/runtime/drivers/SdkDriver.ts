@@ -2,6 +2,7 @@
 import { query, Query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { AgentDriver, DriverCapabilities, DriverOptions, DriverToolHooks } from '../AgentDriver.js';
 import { RuntimeType } from '@crewtree/shared';
+import { toUserContent } from '../../uploads/composeMessage.js';
 
 export class AsyncQueue<T> implements AsyncIterable<T> {
   private queue: T[] = [];
@@ -98,10 +99,11 @@ function toSdkHooks(hooks: DriverToolHooks): Options['hooks'] {
   return result;
 }
 
+/** Attachment markers become image/document blocks (PLAN.md 8). */
 function userMessage(content: string): SDKUserMessage {
   return {
     type: 'user',
-    message: { role: 'user', content },
+    message: { role: 'user', content: toUserContent(content) },
     parent_tool_use_id: null,
   } as SDKUserMessage;
 }
@@ -157,6 +159,7 @@ export class SdkDriver implements AgentDriver {
 
     if (options.mcpServers) queryOptions.mcpServers = options.mcpServers;
     if (options.maxTurns) queryOptions.maxTurns = options.maxTurns;
+    if (options.permissionMode) queryOptions.permissionMode = options.permissionMode;
     if (options.hooks) queryOptions.hooks = toSdkHooks(options.hooks);
 
     const cfg = options.claudeConfig;

@@ -52,3 +52,35 @@ export const SessionAgentSchema = z.object({
 });
 
 export type SessionAgent = z.infer<typeof SessionAgentSchema>;
+
+/** AI Generate output for an agent (PLAN.md 6.4, Appendix A.4). */
+export const GeneratedAgentSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .transform((s) =>
+      s
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+    ),
+  description: z.string().default(''),
+  systemPrompt: z.string().min(1),
+  suggestedTools: z.array(z.string()).default([]),
+  suggestedModel: z.string().optional(),
+  canDelegate: z.boolean().default(false),
+  delegates: z.union([z.literal('*'), z.array(z.string())]).default('*'),
+});
+export type GeneratedAgent = z.infer<typeof GeneratedAgentSchema>;
+
+export const GenerateAgentRequestSchema = z.object({
+  mode: z.enum(['generate', 'improve']).default('generate'),
+  description: z.string().default(''),
+  /** Current .md content (Improve) */
+  current: z.string().optional(),
+  attachments: z.array(z.string()).default([]),
+  /** UI language, used when generatedContentLanguage = follow */
+  uiLanguage: z.enum(['en', 'vi']).default('en'),
+});
+export type GenerateAgentRequest = z.infer<typeof GenerateAgentRequestSchema>;

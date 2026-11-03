@@ -80,7 +80,11 @@
     "toolInput": "Input",
     "toolOutput": "Output",
     "queued": "queued",
-    "interruptAndSend": "Interrupt & send"
+    "interruptAndSend": "Interrupt & send",
+    "interruptAndSendNow": "Interrupt & send now",
+    "withAttachments_one": "{{count}} attachment",
+    "withAttachments_other": "{{count}} attachments",
+    "withReferencedCode": "Referenced code"
   },
   "eventLog": {
     "title": "Live event log",
@@ -243,7 +247,6 @@
     "systemPrompt": "System prompt",
     "generate": "Generate with AI",
     "tryIt": "Try it",
-    "comingPhase4": "Arrives in Phase 4",
     "mdFile": ".md file",
     "history": "History",
     "invalidYaml": "Invalid frontmatter: {{error}}",
@@ -299,5 +302,66 @@
     "nMcp_one": "{{count}} MCP",
     "nMcp_other": "{{count}} MCP",
     "comingPhase6": "This page arrives in Phase 6."
+  },
+  "composer": {
+    "placeholder": "Message…",
+    "loading": "Loading…",
+    "binaryFile": "Binary file — no preview.",
+    "fileTooLarge": "File is larger than 2 MB — no preview.",
+    "lineRange": "Line range",
+    "lineHint": "Drag or shift-click to select lines, or type 10-24",
+    "insertLines": "Insert {{range}}",
+    "insertFile": "Insert file",
+    "noMatches": "No matches",
+    "group": {
+      "recent": "Recent",
+      "files": "Files",
+      "agents": "Agents",
+      "skill": "Skill",
+      "command": "Command"
+    },
+    "mentionHint": "↑↓ select · Enter insert · type #10-24 for lines · Tab preview",
+    "slashHint": "↑↓ select · Enter insert",
+    "removeAttachment": "Remove {{name}}",
+    "attach": "Attach files",
+    "mention": "Mention a file or agent",
+    "slash": "Skill or command",
+    "sendTo": "Send to: {{name}}",
+    "keysHint": "Enter send · Shift+Enter new line"
+  },
+  "aiGenerate": {
+    "describe": "Describe the agent you want…",
+    "placeholder": "A lead dev for a NestJS project, splits tasks by module…",
+    "outputLanguage": "Output language: {{language}}",
+    "followInterface": "Follow interface ({{language}})",
+    "lang": {
+      "en": "English",
+      "vi": "Vietnamese"
+    },
+    "generateNew": "Generate new",
+    "improve": "Improve current prompt",
+    "stop": "Stop",
+    "streaming": "Result (streaming)",
+    "result": "Result",
+    "tools": "suggested tools",
+    "viewDiff": "View diff vs current",
+    "hideDiff": "Hide diff",
+    "apply": "Apply",
+    "applyHint": "Apply fills the form; review the diff and Save to write the file."
+  },
+  "tryIt": {
+    "sandbox": "Sandbox",
+    "allowWrites": "Allow file writes",
+    "allowWritesHint": "Off: the agent runs in plan mode and cannot edit files.",
+    "reset": "Reset",
+    "stale": "The agent or sandbox settings changed — Reset to try the new version.",
+    "empty": "Send a message to try {{name}} in the selected folder.",
+    "permission": "{{tool}} wants to run",
+    "allowed": "Allowed",
+    "denied": "Denied",
+    "allowOnce": "Allow once",
+    "deny": "Deny",
+    "placeholder": "Message {{name}}…",
+    "simulatedNote": "Delegation is simulated in the sandbox: no child agents are started."
   }
 }

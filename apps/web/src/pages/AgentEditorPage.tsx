@@ -27,6 +27,8 @@ import {
   type WritableScope,
 } from '@/features/resources/types';
 import { useAgents } from './AgentsPage';
+import { AiGeneratePanel } from '@/features/ai-generate/AiGeneratePanel';
+import { TryItPanel } from '@/features/tryit/TryItPanel';
 
 type Tab = 'ai' | 'try' | 'file' | 'history';
 
@@ -107,7 +109,7 @@ export function AgentEditorPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const dark = useIsDark();
-  const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) || 'file');
+  const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) || (isNew ? 'ai' : 'file'));
   const [scope, setScope] = useState<WritableScope>((searchParams.get('scope') as WritableScope) || 'user');
   const [content, setContent] = useState(isNew ? newAgentTemplate() : '');
   const [original, setOriginal] = useState(isNew ? newAgentTemplate() : '');
@@ -493,9 +495,7 @@ export function AgentEditorPage() {
               <>
                 <Sparkles className="h-3.5 w-3.5" />
                 {t('editor.generate')}
-              </>,
-              true,
-              t('editor.comingPhase4')
+              </>
             )}
             {tabButton(
               'try',
@@ -503,12 +503,16 @@ export function AgentEditorPage() {
                 <Play className="h-3.5 w-3.5" />
                 {t('editor.tryIt')}
               </>,
-              true,
-              t('editor.comingPhase4')
+              !!yamlError || !content.trim(),
+              yamlError ? t('editor.invalidYaml', { error: yamlError }) : undefined
             )}
             {tabButton('file', t('editor.mdFile'))}
             {!isNew && tabButton('history', t('editor.history'))}
           </div>
+
+          {tab === 'ai' && <AiGeneratePanel current={content} onApply={setContent} dark={dark} disabled={readOnly} />}
+
+          {tab === 'try' && <TryItPanel content={content} agentName={fields.name || t('editor.untitled')} />}
 
           {tab === 'file' && (
             <div className="flex flex-1 flex-col overflow-hidden p-3">

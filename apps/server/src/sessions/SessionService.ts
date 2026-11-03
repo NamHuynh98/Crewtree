@@ -28,6 +28,7 @@ import { deepMerge } from '../lib/deepMerge.js';
 import { nanoid } from 'nanoid';
 import { eq, inArray, asc, notInArray, isNull, isNotNull, and, sql } from 'drizzle-orm';
 import { EventBus } from '../events/EventBus.js';
+import { UploadService } from '../uploads/UploadService.js';
 
 /** An agent of the initial tree built in the New session dialog (PLAN.md 4.1). */
 export interface InitialAgent {
@@ -478,6 +479,7 @@ export class SessionService implements TaskHost {
     await FileActivity.getInstance().unwatchSession(sessionId);
     getDb().delete(sessionAgentsTable).where(eq(sessionAgentsTable.sessionId, sessionId)).run();
     getDb().delete(sessionsTable).where(eq(sessionsTable.id, sessionId)).run();
+    UploadService.getInstance().removeScope(sessionId);
   }
 
   // ------------------------------------------------------------------ settings & queries

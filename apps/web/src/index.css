@@ -54,3 +54,22 @@
     padding: 0;
   }
 }
+
+/* Composer chips (UI-WIREFRAMES 3). Outside @layer: the per-kind classes are built at runtime,
+   so Tailwind's content scan would drop them from a layer. */
+.composer-editor p {
+  margin: 0;
+}
+.composer-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  @apply pointer-events-none float-left h-0 text-muted-foreground;
+}
+.composer-chip {
+  @apply mx-0.5 inline-flex cursor-pointer items-center rounded border border-border bg-muted px-1 py-px font-mono text-[11px] text-foreground;
+}
+.composer-chip-agent {
+  @apply border-primary/40 bg-primary/10 text-primary;
+}
+.composer-chip-slash {
+  @apply border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400;
+}
