@@ -11,7 +11,9 @@
   "settings": "Cài đặt",
   "nav": {
     "workspace": "Không gian làm việc",
-    "claudeConfig": "Cấu hình Claude"
+    "claudeConfig": "Cấu hình Claude",
+    "collapse": "Thu gọn thanh bên",
+    "expand": "Mở rộng thanh bên"
   },
   "header": {
     "pending": "{{count}} chờ duyệt",
@@ -103,7 +105,9 @@
     "messaged": "nhắn cho {{name}}",
     "completed": "đã hoàn thành task",
     "askedParent": "đã hỏi agent cha",
-    "fromParent": "{{name}} (cha)"
+    "fromParent": "{{name}} (cha)",
+    "loadOlder": "Tải tin nhắn cũ hơn",
+    "loadingOlder": "Đang tải…"
   },
   "status": {
     "idle": "Rảnh",
@@ -374,6 +378,8 @@
   "conflict": {
     "message": "{{agent}} định sửa {{path}} — đang bị {{holder}} khoá (task: {{task}}).",
     "reported": "Đã chặn và báo cho agent cha.",
+    "bashMessage": "{{agent}} đã sửa {{path}} bằng Bash trong khi {{holder}} đang giữ file (task: {{task}}).",
+    "bashReported": "Bash không bị khoá file chặn được: hãy kiểm tra file trong Changes.",
     "view": "Xem",
     "dismiss": "Bỏ qua"
   },
@@ -410,7 +416,8 @@
     "disableForSession": "Tắt cho session này",
     "systemPrompt": "System prompt (bản chụp, chỉ đọc)",
     "remove": "Gỡ khỏi session",
-    "removeConfirm": "Gỡ agent này và cả nhánh con?"
+    "removeConfirm": "Gỡ agent này và cả nhánh con?",
+    "modelFallback": "{{from}} không khả dụng: đã chuyển sang model dự phòng {{to}}"
   },
   "files": {
     "view": "Xem",
@@ -659,7 +666,7 @@
       "generate": "Model cho AI Generate",
       "fallback": "Model dự phòng"
     },
-    "defaultsHint": "Dùng khi file agent không ghi model. Model dự phòng được lưu cho trường hợp một model không còn khả dụng; việc tự chuyển sang model dự phòng chưa được áp dụng.",
+    "defaultsHint": "Dùng khi file agent không ghi model. Claude Code tự chuyển sang model dự phòng khi model của agent quá tải hoặc không khả dụng (ghi lại trong Activity của agent).",
     "global": "Chung (mọi session — một quota tài khoản)",
     "maxConcurrent": "Số agent chạy đồng thời tối đa",
     "maxConcurrentHint": "Chỉ tính agent đang sinh output.",

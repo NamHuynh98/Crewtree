@@ -46,6 +46,8 @@ export interface AgentRuntimeOptions {
   idleSuspendMinutes?: number;
   /** Used when neither the session override nor the agent's frontmatter sets a model. */
   defaultModel?: string;
+  /** Settings → Models → fallback; passed to Claude Code when it differs from the agent's model. */
+  fallbackModel?: string;
   mcpHandlers?: Partial<OrchestratorHandlers>;
   /** `onPending` is called when the request actually waits for the user (status waiting_input). */
   canUseTool?: (toolName: string, input: any, onPending: () => void) => Promise<PermissionDecision>;
@@ -85,6 +87,8 @@ export class AgentRuntime {
   private throttleTimer?: NodeJS.Timeout;
   private disposed = false;
   private lastText = '';
+  /** The fallback was announced in Activity during the current turn. */
+  private fallbackNoticed = false;
 
   constructor(private options: AgentRuntimeOptions) {
     const agent = options.sessionAgent;
@@ -109,6 +113,13 @@ export class AgentRuntime {
   public get model(): string | undefined {
     const model = this.options.sessionAgent.modelOverride || this.parsed.frontmatter.model || this.options.defaultModel;
     return model && model !== 'inherit' ? model : undefined;
+  }
+
+  /** Only with an explicit model: Claude Code refuses a fallback equal to the main model. */
+  public get fallbackModel(): string | undefined {
+    const fallback = this.options.fallbackModel?.trim();
+    const model = this.model;
+    return fallback && model && fallback !== model ? fallback : undefined;
   }
 
   public getStatus(): AgentStatus {
@@ -239,6 +250,7 @@ export class AgentRuntime {
       cwd: this.options.cwd,
       systemPrompt: prompt,
       model: this.model,
+      fallbackModel: this.fallbackModel,
       tools: normalizeToolList(this.parsed.frontmatter.tools),
       // Only Crewtree's own tools are auto-approved; everything else goes through settings rules / Approval.
       allowedTools: [CREWTREE_TOOLS_PATTERN],
@@ -246,7 +258,7 @@ export class AgentRuntime {
       sessionAgentId: agent.id,
       mcpServers: { [CREWTREE_MCP_SERVER_NAME]: createAgentMcpServer(ctx, this.options.mcpHandlers) },
       boundTools: bindTools(ctx, this.options.mcpHandlers),
-      hooks: this.options.hooks,
+      hooks: this.withToolListGuard(this.options.hooks),
       maxTurns: this.options.maxTurns ?? this.parsed.frontmatter.maxTurns,
       claudeConfig,
       canUseTool: (toolName, input) => this.handleCanUseTool(toolName, input),
@@ -271,7 +283,38 @@ export class AgentRuntime {
     await driver?.dispose();
   }
 
+  /**
+   * Claude Code semantics: an explicit `tools` list also limits MCP tools (PLAN.md 6.1). The SDK `tools` option
+   * only covers built-in tools, so MCP tools of the user's servers are refused here unless listed
+   * (`mcp__server`, `mcp__server__*` or the exact tool name). Crewtree's own tools are always allowed.
+   */
+  private toolListBlocks(toolName: string): string | undefined {
+    const list = normalizeToolList(this.parsed.frontmatter.tools);
+    if (!list || !toolName.startsWith('mcp__') || toolName.startsWith(`mcp__${CREWTREE_MCP_SERVER_NAME}__`)) return;
+    const allowed = list.some(
+      (t) =>
+        t === '*' ||
+        t === toolName ||
+        (t.endsWith('*') && toolName.startsWith(t.slice(0, -1))) ||
+        (t.startsWith('mcp__') && !t.slice(5).includes('__') && toolName.startsWith(`${t}__`))
+    );
+    return allowed ? undefined : `${toolName} is not in this agent's tools (${list.join(', ')}).`;
+  }
+
+  private withToolListGuard(hooks: DriverToolHooks | undefined): DriverToolHooks {
+    return {
+      ...hooks,
+      preToolUse: async (toolName, input, toolUseId) => {
+        const blocked = this.toolListBlocks(toolName);
+        if (blocked) return { decision: 'deny', reason: blocked };
+        return hooks?.preToolUse ? hooks.preToolUse(toolName, input, toolUseId) : {};
+      },
+    };
+  }
+
   private async handleCanUseTool(toolName: string, input: any): Promise<PermissionDecision> {
+    const blocked = this.toolListBlocks(toolName);
+    if (blocked) return { allow: false, reason: blocked };
     // Phase 2 wires ApprovalService here; until then tools not covered by settings rules are allowed.
     if (!this.options.canUseTool) return { allow: true };
     let waited = false;
@@ -297,10 +340,14 @@ export class AgentRuntime {
       case 'crewtree.interrupted':
         this.endTurn();
         return;
+      case 'assistant':
+        this.checkModelFallback(raw.message?.model);
+        break;
       case 'rate_limit_event':
         this.handleRateLimitInfo(raw.rate_limit_info);
         return;
       case 'system':
+        if (raw.subtype === 'model_refusal_fallback') this.noticeFallback(raw.fallback_model);
         if (raw.subtype === 'api_retry' && (raw.error_status === 429 || raw.error === 'rate_limit')) {
           // The SDK retries by itself; just surface the wait.
           this.setStatus('throttled', { retryAfterMs: raw.retry_delay_ms, attempt: raw.attempt });
@@ -329,6 +376,22 @@ export class AgentRuntime {
     if (raw.type === 'result') {
       this.handleTurnResult(raw);
     }
+  }
+
+  /** An assistant message served by the fallback model (Claude Code switched because the primary was unavailable). */
+  private checkModelFallback(served: unknown) {
+    const fallback = this.fallbackModel;
+    const primary = this.model;
+    if (!fallback || !primary || typeof served !== 'string') return;
+    const is = (name: string) => served === name || served.includes(name);
+    if (is(fallback) && !is(primary)) this.noticeFallback(served);
+  }
+
+  private noticeFallback(served: string | undefined) {
+    if (this.fallbackNoticed) return;
+    this.fallbackNoticed = true;
+    console.warn(`[AgentRuntime] ${this.options.sessionAgent.agentName}: ${this.model} unavailable, using ${served}`);
+    this.setStatus(this.status, { modelFallback: { from: this.model, to: served ?? this.fallbackModel } });
   }
 
   private persistAssistantText(text: string) {
@@ -462,6 +525,7 @@ export class AgentRuntime {
     }
     // Claimed synchronously so concurrent callers see a busy agent while it waits for a slot
     this.turnActive = true;
+    this.fallbackNoticed = false;
     this.lastText = '';
     if (this.throttleTimer && content !== this.lastUserMessage) {
       clearTimeout(this.throttleTimer);

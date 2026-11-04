@@ -5,6 +5,7 @@ import path from 'path';
 import open from 'open';
 import { DEFAULT_PORT } from '@crewtree/shared';
 import { bundleRoot, files, serverEntry } from './layout.js';
+import { ensureNative } from './native.js';
 import { CliError } from './ui.js';
 
 export interface Health {
@@ -76,6 +77,7 @@ export async function startServer(opts: { project?: string; root?: string } = {}
   const entry = serverEntry(opts.root);
   if (!fs.existsSync(entry))
     throw new CliError(`Server not found at ${entry}`, 'Reinstall Crewtree or run `pnpm build` in a checkout.');
+  ensureNative(opts.root ?? bundleRoot());
   fs.mkdirSync(files.logs(), { recursive: true });
   const log = fs.openSync(files.serverLog(), 'a');
   const child = spawn(process.execPath, [entry], {
@@ -146,6 +148,25 @@ export async function openBrowser(project?: string, noOpen = false): Promise<str
   if (!res.ok || !body.url) throw new CliError(body.error ?? `Could not open the UI (${res.status})`);
   if (!noOpen) await open(body.url);
   return body.url;
+}
+
+/**
+ * `crewtree serve`: runs the server in the foreground for launchd / systemd / Task Scheduler (PLAN.md 16.3),
+ * so they see it exit. Returns the server's exit code; 0 right away when it is already running.
+ */
+export async function serveForeground(): Promise<number> {
+  if (await health()) return 0;
+  const entry = serverEntry();
+  if (!fs.existsSync(entry)) throw new CliError(`Server not found at ${entry}`);
+  ensureNative(bundleRoot());
+  const child = spawn(process.execPath, [entry], {
+    cwd: path.dirname(path.dirname(entry)),
+    stdio: 'inherit',
+    windowsHide: true,
+    env: { ...process.env, NODE_ENV: 'production' },
+  });
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => child.kill(signal));
+  return new Promise((resolve) => child.on('exit', (code) => resolve(code ?? 1)));
 }
 
 export { bundleRoot };

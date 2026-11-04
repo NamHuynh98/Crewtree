@@ -35,6 +35,8 @@ export interface DriverOptions {
   cwd: string;
   systemPrompt: string;
   model?: string;
+  /** Used by Claude Code when `model` is overloaded or unavailable (never equal to `model`). */
+  fallbackModel?: string;
   /** Built-in tools available to the agent (frontmatter `tools`); undefined = all. */
   tools?: string[];
   /** Tools auto-approved without asking (always includes `mcp__crewtree__*`). */

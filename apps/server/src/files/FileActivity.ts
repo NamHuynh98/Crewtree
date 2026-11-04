@@ -8,6 +8,7 @@ import { fileTouchesTable } from '../db/schema.js';
 import { EventBus } from '../events/EventBus.js';
 import { getSnapshotsDir, normalizePath } from '../paths.js';
 import { relativeToCwd } from '../approvals/permissionPatterns.js';
+import { FileLockManager } from './FileLockManager.js';
 
 export type TouchOp = 'edit' | 'write' | 'bash' | 'unknown';
 
@@ -135,8 +136,26 @@ export class FileActivity {
       this.recordTouch({ sessionId, sessionAgentId: '', absPath, cwd, op: 'unknown' });
       return;
     }
+    const holder = FileLockManager.getInstance().holderOf(absPath, now);
     for (const [agentId, b] of runners) {
       this.recordTouch({ sessionId, sessionAgentId: agentId, taskId: b.taskId, absPath, cwd, op: 'bash' });
+      // Bash bypasses the Edit/Write lease: the change already happened, so report it (PLAN.md 5.2)
+      if (holder && holder.sessionAgentId !== agentId && holder.sessionId === sessionId) {
+        EventBus.getInstance().emitEvent({
+          sessionId,
+          sessionAgentId: agentId,
+          type: 'file.conflict',
+          payload: {
+            path: relativeToCwd(absPath, cwd),
+            agentId,
+            holderAgentId: holder.sessionAgentId,
+            holder: holder.agentName,
+            holderTask: holder.taskTitle,
+            via: 'Bash',
+          },
+          ts: now,
+        });
+      }
     }
   }
 }

@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { previewComposerText } from '@/features/composer/MessageText';
 import type { ComposerSendPayload } from '@/features/composer/types';
 import type { ApprovalDecisionInput } from '@/components/workspace/ApprovalList';
-import { applyChatEvent, BUSY_STATUSES, nextKey, type ChatMessage } from './chat';
+import { applyChatEvent, BUSY_STATUSES, fetchChatPage, nextKey, type ChatMessage } from './chat';
 
 export interface AgentStats {
   tokens: number;
@@ -24,6 +24,8 @@ export interface FileConflict {
   path: string;
   holderAgentId?: string;
   holderTaskTitle?: string;
+  /** 'Bash': the change already happened (Bash bypasses the lease) */
+  via?: string;
   ts: number;
 }
 
@@ -61,6 +63,8 @@ export function useWorkspace(sessionId: string) {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [stats, setStats] = useState<Record<string, AgentStats>>({});
   const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [chatHasOlder, setChatHasOlder] = useState(false);
+  const chatCursorRef = useRef<number | undefined>(undefined);
   const [usage, setUsage] = useState<Usage>(ZERO_USAGE);
   const [conflicts, setConflicts] = useState<FileConflict[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -174,6 +178,7 @@ export function useWorkspace(sessionId: string) {
               path: p.path,
               holderAgentId: p.holderAgentId,
               holderTaskTitle: p.holderTask,
+              via: p.via,
               ts: event.ts,
             },
           ]);
@@ -228,9 +233,7 @@ export function useWorkspace(sessionId: string) {
       try {
         const detail = await api<SessionDetail>(`/api/sessions/${sessionId}`);
         const supervisorId = detail.session.supervisorAgentId;
-        const events = await api<AgentEvent[]>(
-          `/api/sessions/${sessionId}/events?after=0&agent=${supervisorId}&limit=2000`
-        );
+        const page = await fetchChatPage(sessionId, supervisorId);
         if (closed) return;
         supervisorIdRef.current = supervisorId;
         titleRef.current = detail.session.title;
@@ -240,12 +243,9 @@ export function useWorkspace(sessionId: string) {
         setApprovals(detail.approvals ?? []);
         setStats(detail.agentStats ?? {});
         setUsage(ZERO_USAGE);
-        let history: ChatMessage[] = [];
-        for (const e of events) {
-          if (e.type === 'agent.status') continue;
-          history = applyChatEvent(history, e, true);
-        }
-        setChat(history);
+        setChat(page.messages);
+        chatCursorRef.current = page.cursor;
+        setChatHasOlder(page.hasOlder);
         // Live events start after the newest persisted one of the whole session
         const tail = await api<AgentEvent[]>(`/api/sessions/${sessionId}/events?before=999999999999&limit=1`);
         lastEventIdRef.current = tail[0]?.id ?? 0;
@@ -341,6 +341,16 @@ export function useWorkspace(sessionId: string) {
         }),
       updateSession: (patch: { title?: string; settings?: unknown }) =>
         run(async () => setSession(await api<Session>(`/api/sessions/${sessionId}`, { method: 'PATCH', body: patch }))),
+      /** Older page of the Supervisor chat, added above */
+      loadOlderChat: async () => {
+        const cursor = chatCursorRef.current;
+        const supervisorId = supervisorIdRef.current;
+        if (!cursor || !supervisorId) return;
+        const page = await fetchChatPage(sessionId, supervisorId, cursor);
+        chatCursorRef.current = page.cursor;
+        setChatHasOlder(page.hasOlder);
+        setChat((prev) => [...page.messages, ...prev]);
+      },
       dismissConflict: (id: string) => setConflicts((prev) => prev.filter((c) => c.id !== id)),
       clearError: () => setError(null),
     }),
@@ -355,6 +365,7 @@ export function useWorkspace(sessionId: string) {
     approvals,
     stats,
     chat,
+    chatHasOlder,
     usage,
     conflicts,
     error,

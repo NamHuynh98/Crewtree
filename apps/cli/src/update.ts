@@ -328,6 +328,7 @@ export async function update(opts: UpdateOptions) {
 
     step(5, total, 'Switching & restarting');
     const previousDir = versionDirOf(current);
+    const versionsBefore = readVersions();
     pointCurrent(targetDir);
     writeVersions({ current: path.basename(targetDir), previous: path.basename(previousDir) });
     try {
@@ -338,7 +339,9 @@ export async function update(opts: UpdateOptions) {
       // New version failed to start: restore the DB and the old version
       if (backup) restoreDb(backup);
       pointCurrent(previousDir);
-      writeVersions({ current: path.basename(previousDir) });
+      // Back to exactly the state before: the earlier rollback target stays, the broken folder goes
+      writeVersions(versionsBefore.current ? versionsBefore : { current: path.basename(previousDir) });
+      fs.rmSync(targetDir, { recursive: true, force: true });
       if (wasRunning) await startServer({ root: previousDir }).catch(() => undefined);
       throw new CliError(
         `v${release.version} did not start; restored v${current} and its database`,

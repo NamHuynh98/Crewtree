@@ -81,26 +81,39 @@ export class ModelCatalogService {
 
 const FAMILY_RANK: Record<string, number> = { opus: 3, sonnet: 2, haiku: 1 };
 
-/**
- * Best model for the default Supervisor (PLAN.md 4.1): Opus > Sonnet > Haiku, then newest version,
- * then the large-context (1M) variant. Returns a concrete model id, or undefined when none qualifies.
- */
-export function pickBestModel(models: CatalogModel[]): string | undefined {
-  const ranked = models
+/** An alias such as `opus` or `fable`: Claude Code resolves it to the newest model of that family on every run. */
+const isAlias = (value: string) => /^[a-z]+(\[1m\])?$/i.test(value) && value !== 'default' && value !== 'inherit';
+
+/** Newest known model when the account has no recommended one: Opus > Sonnet > Haiku, then version, then 1M. */
+function rankModels(models: CatalogModel[]): CatalogModel | undefined {
+  return models
     .map((m) => {
       const id = (m.resolvedModel ?? m.value).toLowerCase();
       const match = /(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/.exec(id);
       if (!match) return null;
       const large = /\[1m\]|1m/i.test(m.value) || /1m/i.test(m.displayName);
-      return {
-        id: m.resolvedModel && !/\[1m\]/i.test(m.value) ? m.resolvedModel : m.value,
-        key: [FAMILY_RANK[match[1]], Number(match[2]), Number(match[3] ?? 0), large ? 1 : 0],
-      };
+      return { model: m, key: [FAMILY_RANK[match[1]], Number(match[2]), Number(match[3] ?? 0), large ? 1 : 0] };
     })
-    .filter((x): x is { id: string; key: number[] } => x !== null)
+    .filter((x): x is { model: CatalogModel; key: number[] } => x !== null)
     .sort((a, b) => {
       for (let i = 0; i < a.key.length; i++) if (a.key[i] !== b.key[i]) return b.key[i] - a.key[i];
       return 0;
-    });
-  return ranked[0]?.id;
+    })[0]?.model;
+}
+
+/**
+ * Model for the default Supervisor (PLAN.md 4.1). Follows the account: the model Claude Code recommends for it
+ * ("Default (recommended)"), written as its family alias (`opus`, not `claude-opus-5-5`) so the Supervisor moves
+ * to newer releases by itself. Any family works (Opus, Sonnet, Fable, future ones). Without a recommendation,
+ * the newest known model; a concrete id only when the account has no alias for it.
+ */
+export function pickBestModel(models: CatalogModel[]): string | undefined {
+  const recommended = models.find((m) => m.value === 'default' && m.resolvedModel);
+  const chosen = recommended ?? rankModels(models);
+  if (!chosen) return undefined;
+  if (isAlias(chosen.value)) return chosen.value;
+  const resolved = chosen.resolvedModel ?? chosen.value;
+  const alias = models.find((m) => isAlias(m.value) && m.resolvedModel === resolved);
+  if (alias) return alias.value;
+  return chosen.value === 'default' ? resolved : chosen.value;
 }

@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
-# Crewtree installer for macOS (PLAN.md 16.1). POSIX sh, no sudo, never touches ~/.claude.
+# Crewtree installer for macOS and Linux, WSL included (PLAN.md 16.1). POSIX sh, no sudo, never touches ~/.claude.
 #
 #   curl -fsSL https://github.com/NamHuynh98/Crewtree/releases/latest/download/install.sh | sh
 #
@@ -53,7 +53,7 @@ OS=$(uname -s)
 ARCH=$(uname -m)
 case "$OS" in
   Darwin) OS=darwin ;;
-  Linux) die "Linux and WSL are not supported yet" "Follow https://github.com/$REPO for Linux builds (planned)." ;;
+  Linux) OS=linux ;;
   *) die "Unsupported system: $OS" "On Windows use install.ps1 in PowerShell." ;;
 esac
 case "$ARCH" in
@@ -61,7 +61,10 @@ case "$ARCH" in
   x86_64|amd64) ARCH=x64 ;;
   *) die "Unsupported CPU: $ARCH" ;;
 esac
-ok "$OS-$ARCH"
+LIBC=""
+if [ "$OS" = linux ] && { ldd --version 2>&1 || true; } | grep -qi musl; then LIBC=" (musl)"; fi
+if [ "$OS" = linux ] && grep -qi microsoft /proc/version 2>/dev/null; then LIBC="$LIBC (WSL)"; fi
+ok "$OS-$ARCH$LIBC"
 
 command -v node >/dev/null 2>&1 || die "Node.js is not installed" "Install Node 22 LTS from https://nodejs.org and run this again."
 NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
@@ -152,8 +155,12 @@ case ":$PATH:" in
   *":$BIN_DIR:"*) ok "$BIN_DIR is on PATH" ;;
   *)
     LINE='export PATH="$HOME/.local/bin:$PATH"'
-    PROFILE="$HOME/.zshrc"
-    case "${SHELL:-}" in */bash) PROFILE="$HOME/.bashrc" ;; esac
+    case "${SHELL:-}" in
+      */zsh) PROFILE="$HOME/.zshrc" ;;
+      */bash) PROFILE="$HOME/.bashrc" ;;
+      */fish) PROFILE="$HOME/.config/fish/config.fish"; LINE='fish_add_path $HOME/.local/bin' ;;
+      *) PROFILE="$HOME/.profile" ;;
+    esac
     if [ "${CREWTREE_MODIFY_PATH:-}" = "1" ]; then
       printf '\n# Crewtree\n%s\n' "$LINE" >>"$PROFILE"
       ok "added $BIN_DIR to PATH in $PROFILE (open a new terminal)"

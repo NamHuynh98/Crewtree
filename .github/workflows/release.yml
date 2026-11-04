@@ -1,4 +1,4 @@
-# Release pipeline (PLAN.md 16.5, 21.3): push a tag v* to build every platform, smoke-test the installers on
+# Release pipeline (PLAN.md 16.5, 21.3): push a tag v* to build every platform (macOS, Windows, Linux), smoke-test the installers on
 # each runner, then publish the archives, SHA256SUMS and installers with build provenance attestations.
 # Run it by hand (workflow_dispatch) to build and test without publishing.
 name: Release
@@ -29,6 +29,10 @@ jobs:
             target: darwin-x64
           - os: windows-latest
             target: win32-x64
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
     runs-on: ${{ matrix.os }}
     env:
       VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
@@ -48,8 +52,8 @@ jobs:
         run: node scripts/pack.mjs --version ${{ env.VERSION }}
 
       # Install from the local archive with the real installer, then start, query and stop the server
-      - name: Smoke test (macOS)
-        if: runner.os == 'macOS'
+      - name: Smoke test (macOS, Linux)
+        if: runner.os != 'Windows'
         shell: bash
         env:
           CREWTREE_SKIP_CLAUDE_CHECK: '1'
@@ -97,6 +101,26 @@ jobs:
           & $crewtree status
           if ($LASTEXITCODE -eq 0) { throw 'Server still running after stop' }
           $global:LASTEXITCODE = 0
+
+      # update → rollback with a test migration, autostart on/off (launchd / Task Scheduler)
+      - name: Smoke test (update, rollback, autostart)
+        env:
+          CREWTREE_SKIP_CLAUDE_CHECK: '1'
+          CREWTREE_NO_UPDATE_CHECK: '1'
+          NO_COLOR: '1'
+        run: node scripts/smoke-update.mjs
+
+      # Packed on Node 22, run on the user's Node: the CLI switches better-sqlite3 to the matching binary
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Smoke test (installed bundle on Node 24)
+        env:
+          CREWTREE_SKIP_CLAUDE_CHECK: '1'
+          CREWTREE_NO_UPDATE_CHECK: '1'
+          NO_COLOR: '1'
+        run: node scripts/smoke-update.mjs --start-only
 
       - uses: actions/upload-artifact@v7
         with:

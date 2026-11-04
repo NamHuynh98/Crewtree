@@ -3,7 +3,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Brain, Network, Play, Puzzle, Settings, Sparkles, Terminal } from 'lucide-react';
+import {
+  Bot,
+  Brain,
+  Network,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Play,
+  Puzzle,
+  Settings,
+  Sparkles,
+  Terminal,
+} from 'lucide-react';
 import type { AgentEvent } from '@crewtree/shared';
 import {
   getBoot,
@@ -27,6 +38,23 @@ const navItemClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
   }`;
 
+// Per-browser convenience: storage may be unavailable (private mode, blocked site data)
+const SIDEBAR_KEY = 'crewtree.sidebarCollapsed';
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function writeCollapsed(value: boolean) {
+  try {
+    localStorage.setItem(SIDEBAR_KEY, value ? '1' : '0');
+  } catch {
+    // keeps working for this page only
+  }
+}
+
 /** App shell of UI-WIREFRAMES 0: header, sidebar, global channel; pages render in the outlet. */
 export function AppShell() {
   const { t, i18n } = useTranslation();
@@ -40,6 +68,12 @@ export function AppShell() {
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggleSidebar = () =>
+    setCollapsed((v) => {
+      writeCollapsed(!v);
+      return !v;
+    });
   const { data: projects } = useQuery({
     queryKey: ['projects'],
     queryFn: () => api<{ current: ProjectInfo }>('/api/projects'),
@@ -204,41 +238,83 @@ export function AppShell() {
         <UpdateBanner />
 
         <div className="flex-1 flex overflow-hidden">
-          <aside className="w-56 border-r border-border bg-card/50 flex flex-col justify-between p-3 select-none">
+          <aside
+            className={`${collapsed ? 'w-14 px-2' : 'w-56 px-3'} shrink-0 border-r border-border bg-card/50 flex flex-col justify-between py-3 select-none transition-[width] duration-150`}
+          >
             <div className="space-y-4">
               <div>
-                <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 mb-1.5">
-                  {t('nav.workspace')}
-                </div>
+                {collapsed ? (
+                  <div className="mx-1 mb-1.5 h-px bg-border" aria-hidden />
+                ) : (
+                  <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 mb-1.5">
+                    {t('nav.workspace')}
+                  </div>
+                )}
                 <nav className="space-y-0.5 text-xs font-medium">
-                  <NavLink to="/" end className={navItemClass}>
-                    <Play className="w-3.5 h-3.5 text-primary" />
-                    <span>{t('sessions')}</span>
+                  <NavLink
+                    to="/"
+                    end
+                    className={(s) => `${navItemClass(s)} ${collapsed ? 'justify-center' : ''}`}
+                    title={collapsed ? t('sessions') : undefined}
+                    aria-label={t('sessions')}
+                  >
+                    <Play className="w-3.5 h-3.5 shrink-0 text-primary" />
+                    {!collapsed && <span>{t('sessions')}</span>}
                   </NavLink>
                 </nav>
               </div>
               <div>
-                <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 mb-1.5">
-                  {t('nav.claudeConfig')}
-                </div>
+                {collapsed ? (
+                  <div className="mx-1 mb-1.5 h-px bg-border" aria-hidden />
+                ) : (
+                  <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 mb-1.5">
+                    {t('nav.claudeConfig')}
+                  </div>
+                )}
                 <nav className="space-y-0.5 text-xs font-medium">
                   {configLinks.map(({ to, icon: Icon, label }) => (
-                    <NavLink key={to} to={to} className={navItemClass}>
-                      <Icon className="w-3.5 h-3.5" />
-                      <span>{label}</span>
+                    <NavLink
+                      key={to}
+                      to={to}
+                      className={(s) => `${navItemClass(s)} ${collapsed ? 'justify-center' : ''}`}
+                      title={collapsed ? label : undefined}
+                      aria-label={label}
+                    >
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      {!collapsed && <span>{label}</span>}
                     </NavLink>
                   ))}
                 </nav>
               </div>
             </div>
 
-            {/* Footer: Settings + Claude Code status (UI-WIREFRAMES 0) */}
+            {/* Footer: Settings + Claude Code status (UI-WIREFRAMES 0), collapse toggle */}
             <div className="pt-3 border-t border-border space-y-2">
-              <NavLink to="/settings" className={(s) => `${navItemClass(s)} text-xs font-medium`}>
-                <Settings className="w-3.5 h-3.5" />
-                <span>{t('settings')}</span>
+              <NavLink
+                to="/settings"
+                className={(s) => `${navItemClass(s)} text-xs font-medium ${collapsed ? 'justify-center' : ''}`}
+                title={collapsed ? t('settings') : undefined}
+                aria-label={t('settings')}
+              >
+                <Settings className="w-3.5 h-3.5 shrink-0" />
+                {!collapsed && <span>{t('settings')}</span>}
               </NavLink>
-              <ClaudeStatus status={claudeStatus} serverOnline={serverOnline} />
+              <ClaudeStatus status={claudeStatus} serverOnline={serverOnline} compact={collapsed} />
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className={`flex w-full items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground ${collapsed ? 'justify-center' : ''}`}
+                title={collapsed ? t('nav.expand') : t('nav.collapse')}
+                aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
+                aria-expanded={!collapsed}
+              >
+                {collapsed ? (
+                  <PanelLeftOpen className="w-3.5 h-3.5 shrink-0" />
+                ) : (
+                  <PanelLeftClose className="w-3.5 h-3.5 shrink-0" />
+                )}
+                {!collapsed && <span>{t('nav.collapse')}</span>}
+              </button>
             </div>
           </aside>
 

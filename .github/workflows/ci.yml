@@ -15,8 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS is the primary platform; Windows runs natively from Phase 0 (PLAN.md 16.6)
-        os: [macos-latest, windows-latest]
+        # macOS is the primary platform; Windows runs natively from Phase 0 (PLAN.md 16.6); Linux too
+        os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     env:
       CREWTREE_DRIVER: fake

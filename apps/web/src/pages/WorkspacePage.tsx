@@ -29,6 +29,7 @@ import { useAgents } from '@/pages/AgentsPage';
 import { AddAgentsDialog, sessionCandidates } from '@/features/sessions/AddAgentsDialog';
 import { useWorkspace } from '@/features/workspace/useWorkspace';
 import { MessageList } from '@/features/workspace/MessageList';
+import { ChatScroll } from '@/features/workspace/ChatScroll';
 import { buildNodeInfo, canDelegate, formatTokens, snapshotFields } from '@/features/workspace/agentInfo';
 import { AgentPalette, OutlinePanel, TreeCanvas } from '@/features/workspace/canvas/TreeCanvas';
 import { descendantsOf } from '@/features/workspace/canvas/layout';
@@ -261,7 +262,13 @@ function Workspace({ sessionId }: { sessionId: string }) {
           <div className="border-b border-border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             {t('workspace.chatWith', { name: supervisorName })}
           </div>
-          <div className="flex-1 overflow-y-auto p-3">
+          <ChatScroll
+            firstKey={ws.chat[0]?.id}
+            lastKey={ws.chat[ws.chat.length - 1]?.id}
+            dep={[ws.chat, ws.supervisorBusy]}
+            hasOlder={ws.chatHasOlder}
+            onLoadOlder={ws.loadOlderChat}
+          >
             {ws.chat.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center text-xs text-muted-foreground">
                 <Bot className="mb-2 h-8 w-8 text-primary opacity-50" />
@@ -284,8 +291,7 @@ function Workspace({ sessionId }: { sessionId: string }) {
                 {t('chat.thinking', { name: supervisorName })}
               </div>
             )}
-            <ScrollAnchor dep={ws.chat} />
-          </div>
+          </ChatScroll>
           {(rootQuestion || (showApprovals && ws.approvals.length > 0)) && (
             <div className="max-h-[45%] space-y-2 overflow-y-auto border-t border-border bg-card/60 p-2">
               {rootQuestion && (
@@ -500,14 +506,16 @@ function Workspace({ sessionId }: { sessionId: string }) {
                 >
                   <p>
                     ⚠{' '}
-                    {t('conflict.message', {
+                    {t(c.via === 'Bash' ? 'conflict.bashMessage' : 'conflict.message', {
                       agent: who ? who.alias || who.agentName : '?',
                       path: c.path,
                       holder: holder ? holder.alias || holder.agentName : '?',
                       task: c.holderTaskTitle ?? '—',
                     })}
                   </p>
-                  <p className="text-muted-foreground">{t('conflict.reported')}</p>
+                  <p className="text-muted-foreground">
+                    {t(c.via === 'Bash' ? 'conflict.bashReported' : 'conflict.reported')}
+                  </p>
                   <div className="mt-1.5 flex justify-end gap-2">
                     <Button
                       size="sm"
@@ -568,12 +576,4 @@ function Workspace({ sessionId }: { sessionId: string }) {
       )}
     </div>
   );
-}
-
-function ScrollAnchor({ dep }: { dep: unknown }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.scrollIntoView({ block: 'end' });
-  }, [dep]);
-  return <div ref={ref} />;
 }

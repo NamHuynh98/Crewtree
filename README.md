@@ -6,8 +6,9 @@ approve in real time.
 
 ## Install
 
-Requirements: **Node 22+** and **Claude Code** installed and logged in (`claude` once). macOS and Windows
-are supported; Linux and WSL are planned.
+Requirements: **Node 22+** and **Claude Code** installed and logged in (`claude` once). macOS, Windows and
+Linux (x64 / arm64, glibc or musl, WSL included) are supported. Crewtree adapts to the Node version you run
+and to Node upgrades: no compiler needed.
 
 ```bash
 # macOS

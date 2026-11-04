@@ -29,7 +29,14 @@ export function parseAgentSnapshot(snapshot: string, fallbackName = 'agent'): Pa
     console.warn(`[agentDefinition] Invalid frontmatter for "${fallbackName}":`, err);
   }
 
-  const result = AgentFrontmatterSchema.safeParse({ name: fallbackName, ...raw });
+  let result = AgentFrontmatterSchema.safeParse({ name: fallbackName, ...raw });
+  if (!result.success) {
+    // Drop only the invalid fields: one bad value must not silently reset canDelegate, model, tools…
+    const bad = new Set(result.error.issues.map((i) => String(i.path[0] ?? '')));
+    console.warn(`[agentDefinition] "${fallbackName}": ignoring invalid frontmatter field(s) ${[...bad].join(', ')}`);
+    const kept = Object.fromEntries(Object.entries(raw).filter(([k]) => !bad.has(k)));
+    result = AgentFrontmatterSchema.safeParse({ name: fallbackName, ...kept });
+  }
   return {
     frontmatter: result.success ? result.data : AgentFrontmatterSchema.parse({ name: fallbackName }),
     systemPrompt: match[2].trim(),

@@ -93,6 +93,69 @@ describe('AgentRuntime', () => {
     expect(drivers[0].driver.lastInitOptions!.model).toBe('opus');
   });
 
+  it('an explicit tools list also blocks MCP tools that are not listed (Claude Code semantics)', async () => {
+    const snap = (tools: string) => SNAPSHOT.replace('tools: Read, Edit', `tools: ${tools}`);
+    const check = async (tools: string, tool: string) => {
+      const { runtime, drivers } = makeRuntime(makeAgent({ snapshot: snap(tools) }));
+      await runtime.start();
+      return (await drivers[0].driver.lastInitOptions!.hooks!.preToolUse!(tool, {}, 'x')).decision;
+    };
+    expect(await check('Read, Edit', 'mcp__chrome-devtools__evaluate_script')).toBe('deny');
+    expect(await check('Read, Edit', 'mcp__crewtree__delegate_task')).not.toBe('deny');
+    expect(await check('Read, mcp__chrome-devtools', 'mcp__chrome-devtools__click')).not.toBe('deny');
+    expect(await check('Read, mcp__github__get_issue', 'mcp__github__get_issue')).not.toBe('deny');
+    expect(await check('Read, mcp__github__get_issue', 'mcp__github__create_issue')).toBe('deny');
+    expect(await check('Read, Edit', 'Read')).not.toBe('deny');
+    const inherit = makeRuntime(makeAgent({ snapshot: SNAPSHOT.replace('tools: Read, Edit\n', '') }));
+    await inherit.runtime.start();
+    expect(
+      (await inherit.drivers[0].driver.lastInitOptions!.hooks!.preToolUse!('mcp__chrome-devtools__click', {}, 'x'))
+        .decision
+    ).not.toBe('deny');
+  });
+
+  it('passes the fallback model only when it differs from an explicit model', async () => {
+    const a = makeRuntime(makeAgent(), { fallbackModel: 'haiku' });
+    await a.runtime.start();
+    expect(a.drivers[0].driver.lastInitOptions!.fallbackModel).toBe('haiku');
+    const same = makeRuntime(makeAgent(), { fallbackModel: 'sonnet' });
+    await same.runtime.start();
+    expect(same.drivers[0].driver.lastInitOptions!.fallbackModel).toBeUndefined();
+    const inherit = makeRuntime(makeAgent({ snapshot: SNAPSHOT.replace('model: sonnet\n', '') }), {
+      fallbackModel: 'haiku',
+    });
+    await inherit.runtime.start();
+    expect(inherit.drivers[0].driver.lastInitOptions!.fallbackModel).toBeUndefined();
+  });
+
+  it('logs one Activity notice per turn when the fallback model answers', async () => {
+    const agent = makeAgent();
+    const events = collectEvents(agent.id);
+    const usage = vi.fn();
+    const served = (sid: string) => ({
+      type: 'assistant',
+      session_id: sid,
+      parent_tool_use_id: null,
+      message: { role: 'assistant', model: 'claude-haiku-5-5', content: [{ type: 'text', text: 'hi' }] },
+    });
+    const { runtime } = makeRuntime(agent, {
+      fallbackModel: 'haiku',
+      onTurnComplete: usage,
+      scenario: (_c, sid) => [
+        { type: 'system', subtype: 'init', session_id: sid },
+        served(sid),
+        served(sid),
+        { type: 'result', subtype: 'success', session_id: sid, usage: {}, total_cost_usd: 0, num_turns: 1 },
+      ],
+    });
+    await runtime.start();
+    await runtime.sendMessage('hello');
+    await waitFor(() => usage.mock.calls.length === 1);
+    const notices = events.filter((e) => e.type === 'agent.status' && e.payload.modelFallback);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].payload.modelFallback).toEqual({ from: 'sonnet', to: 'claude-haiku-5-5' });
+  });
+
   it('stays running for the whole turn and goes idle only on the result message', async () => {
     const agent = makeAgent();
     const events = collectEvents(agent.id);

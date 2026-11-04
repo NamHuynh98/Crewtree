@@ -77,7 +77,12 @@ function portIsFree(port: number): Promise<boolean> {
 
 /** Preferred port first, then the next 20, then any port the OS gives. */
 async function choosePort(preferred: number): Promise<number> {
-  for (let p = preferred; p < preferred + 20; p++) if (await portIsFree(p)) return p;
+  // A restarting server (tsx watch, autostart, `crewtree restart`) may still hold the port for a moment
+  for (let i = 0; i < 10; i++) {
+    if (await portIsFree(preferred)) return preferred;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  for (let p = preferred + 1; p < preferred + 20; p++) if (await portIsFree(p)) return p;
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
     probe.once('error', reject);
@@ -189,10 +194,15 @@ export async function createServer() {
     }
 
     const isWs = req.url.startsWith('/ws');
+    const isApi = req.url.startsWith('/api') || isWs;
     const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
     const origin = req.headers.origin;
-    if ((isMutation || isWs) && origin && !isAllowedOrigin(origin)) {
+    // Any method: a foreign page must not even trigger API reads (the SameSite=Strict cookie is the second layer)
+    if ((isMutation || isApi) && origin && !isAllowedOrigin(origin)) {
       return reply.code(403).send({ error: 'Invalid Origin header' });
+    }
+    if (isApi && req.headers['sec-fetch-site'] === 'cross-site') {
+      return reply.code(403).send({ error: 'Cross-site request' });
     }
 
     const isPublic =
@@ -397,9 +407,10 @@ async function start() {
   const shutdownToken = crypto.randomBytes(24).toString('hex');
   fs.writeFileSync(getShutdownTokenPath(), shutdownToken, { mode: 0o600, encoding: 'utf8' });
 
-  // Same port as last time unless PORT is set; another free one when it is taken
+  // Same port as last time unless PORT is set; another free one when it is taken.
+  // Dev always aims at PORT: the Vite proxy targets it.
   let preferred = PORT;
-  if (!process.env.PORT) {
+  if (!process.env.PORT && !isDev) {
     try {
       preferred = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8')).port || PORT;
     } catch {

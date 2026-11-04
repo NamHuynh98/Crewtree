@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { AgentEvent } from '@crewtree/shared';
+import { api } from '@/lib/api';
 
 export interface ToolCall {
   tool: string;
@@ -141,4 +142,46 @@ export function toolSummary(tool: string, input: any): string {
   if (input.query) return String(input.query);
   if (input.description) return String(input.description);
   return '';
+}
+
+/** Event types a chat is built from; the rest (status, files, usage ticks) stay out of chat pages */
+export const CHAT_EVENT_TYPES = [
+  'message.created',
+  'message.updated',
+  'usage.updated',
+  'agent.text.done',
+  'agent.tool.start',
+  'agent.tool.end',
+];
+export const CHAT_PAGE_SIZE = 300;
+
+export interface ChatPage {
+  messages: ChatMessage[];
+  /** Id of the oldest event in the page: the next page is `before` it */
+  cursor?: number;
+  hasOlder: boolean;
+}
+
+/**
+ * One page of an agent's chat history, newest first (a long session no longer loads everything).
+ * A page starts at a user message when it can, so a tool call and its result never sit on two pages.
+ */
+export async function fetchChatPage(
+  sessionId: string,
+  agentId: string,
+  before = Number.MAX_SAFE_INTEGER
+): Promise<ChatPage> {
+  const events = await api<AgentEvent[]>(
+    `/api/sessions/${sessionId}/events?agent=${agentId}&before=${before}&limit=${CHAT_PAGE_SIZE}&types=${CHAT_EVENT_TYPES.join(',')}`
+  );
+  const hasOlder = events.length === CHAT_PAGE_SIZE;
+  let start = 0;
+  if (hasOlder) {
+    const turn = events.findIndex((e) => e.type === 'message.created' && (e.payload as any)?.role === 'user');
+    if (turn > 0) start = turn;
+  }
+  const page = events.slice(start);
+  let messages: ChatMessage[] = [];
+  for (const e of page) messages = applyChatEvent(messages, e, true);
+  return { messages, cursor: page[0]?.id, hasOlder };
 }

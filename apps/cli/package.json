@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/index.ts",
+    "cli": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
   },

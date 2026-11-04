@@ -18,6 +18,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -91,6 +92,54 @@ for (const entry of fs.readdirSync(path.join(serverModules, '@anthropic-ai'))) {
 // Command shims (symlinks on POSIX) are not needed in the bundle
 for (const dir of ['server', 'cli'])
   fs.rmSync(path.join(out, dir, 'node_modules', '.bin'), { recursive: true, force: true });
+
+// The bundle runs on the user's Node, not the one it was packed with. better-sqlite3 is built per Node ABI, so the
+// prebuilt binary of each ABI goes in server/native/ and the CLI switches to the matching one (apps/cli/src/native.ts)
+log('Bundling better-sqlite3 binaries for each Node version');
+const NODE_ABIS = { 127: 'Node 22', 137: 'Node 24', 141: 'Node 25', 147: 'Node 26' };
+const sqliteVersion = JSON.parse(
+  fs.readFileSync(path.join(serverModules, 'better-sqlite3', 'package.json'), 'utf8')
+).version;
+const nativeDir = path.join(out, 'server', 'native');
+fs.mkdirSync(nativeDir, { recursive: true });
+/** The one file we need from a .tar.gz (ustar), without depending on the platform's tar */
+function extractFromTarGz(buffer, suffix) {
+  const tar = gunzipSync(buffer);
+  for (let offset = 0; offset + 512 <= tar.length;) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((b) => b === 0)) break;
+    const field = (start, len) =>
+      header
+        .subarray(start, start + len)
+        .toString('utf8')
+        .replace(/\0.*$/s, '');
+    const size = parseInt(field(124, 12).trim() || '0', 8);
+    const entry = `${field(345, 155)}${field(345, 155) ? '/' : ''}${field(0, 100)}`;
+    if (entry.endsWith(suffix)) return tar.subarray(offset + 512, offset + 512 + size);
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  throw new Error(`${suffix} not found in the archive`);
+}
+const libcs = process.platform === 'linux' ? ['linux', 'linuxmusl'] : [process.platform];
+const shipped = [];
+for (const [abi, label] of Object.entries(NODE_ABIS)) {
+  for (const libc of libcs) {
+    const key = `node-v${abi}-${libc}-${process.arch}`;
+    const url = `https://github.com/WiseLibs/better-sqlite3/releases/download/v${sqliteVersion}/better-sqlite3-v${sqliteVersion}-${key}.tar.gz`;
+    const res = await fetch(url);
+    if (res.status === 404) {
+      console.log(`  - ${key} (${label}): no prebuilt binary`);
+      continue;
+    }
+    if (!res.ok) throw new Error(`Download failed (${res.status}): ${url}`);
+    const binary = extractFromTarGz(Buffer.from(await res.arrayBuffer()), 'better_sqlite3.node');
+    fs.writeFileSync(path.join(nativeDir, `better_sqlite3-${key}.node`), binary);
+    shipped.push(abi);
+    console.log(`  ✓ ${key} (${label})`);
+  }
+}
+for (const required of ['127', '137'])
+  if (!shipped.includes(required)) throw new Error(`No better-sqlite3 binary for ${NODE_ABIS[required]}`);
 fs.writeFileSync(
   path.join(out, 'package.json'),
   `${JSON.stringify(

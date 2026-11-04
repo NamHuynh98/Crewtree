@@ -11,7 +11,9 @@
   "settings": "Settings",
   "nav": {
     "workspace": "Workspace",
-    "claudeConfig": "Claude Config"
+    "claudeConfig": "Claude Config",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar"
   },
   "header": {
     "pending": "{{count}} pending",
@@ -103,7 +105,9 @@
     "messaged": "message to {{name}}",
     "completed": "task completed",
     "askedParent": "asked its parent",
-    "fromParent": "{{name}} (parent)"
+    "fromParent": "{{name}} (parent)",
+    "loadOlder": "Load earlier messages",
+    "loadingOlder": "Loading…"
   },
   "status": {
     "idle": "Idle",
@@ -382,6 +386,8 @@
   "conflict": {
     "message": "{{agent}} tried to edit {{path}} — locked by {{holder}} (task: {{task}}).",
     "reported": "Blocked and reported to its parent.",
+    "bashMessage": "{{agent}} changed {{path}} with Bash while {{holder}} holds it (task: {{task}}).",
+    "bashReported": "Bash is not blocked by file locks: review the file in Changes.",
     "view": "View",
     "dismiss": "Dismiss"
   },
@@ -418,7 +424,8 @@
     "disableForSession": "Disable for this session",
     "systemPrompt": "System prompt (snapshot, read-only)",
     "remove": "Remove from session",
-    "removeConfirm": "Remove it and its subtree?"
+    "removeConfirm": "Remove it and its subtree?",
+    "modelFallback": "{{from}} is unavailable: switched to the fallback model {{to}}"
   },
   "files": {
     "view": "View",
@@ -667,7 +674,7 @@
       "generate": "AI Generate model",
       "fallback": "Fallback model"
     },
-    "defaultsHint": "Used when an agent file has no model. The fallback model is stored for when a model is no longer available; automatic fallback is not applied yet.",
+    "defaultsHint": "Used when an agent file has no model. Claude Code switches to the fallback model when the agent's model is overloaded or unavailable (shown in the agent's Activity).",
     "global": "Global (all sessions — one account quota)",
     "maxConcurrent": "Max concurrent agents",
     "maxConcurrentHint": "Only agents generating output count.",

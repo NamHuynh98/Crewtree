@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { AgentEvent } from '@crewtree/shared';
 import { getDb } from '../db/index.js';
 import { eventsTable } from '../db/schema.js';
-import { gt, lt, and, eq, asc, desc } from 'drizzle-orm';
+import { gt, lt, and, eq, asc, desc, inArray } from 'drizzle-orm';
 
 export interface WsSocket {
   readyState: number;
@@ -165,14 +165,11 @@ export class EventBus extends EventEmitter {
     }
   }
 
-  public getEventsAfter(
-    sessionId: string,
-    lastEventId: number,
-    opts: { sessionAgentId?: string; limit?: number } = {}
-  ): AgentEvent[] {
+  public getEventsAfter(sessionId: string, lastEventId: number, opts: EventQuery = {}): AgentEvent[] {
     const db = getDb();
     const conditions = [eq(eventsTable.sessionId, sessionId), gt(eventsTable.id, lastEventId)];
     if (opts.sessionAgentId) conditions.push(eq(eventsTable.sessionAgentId, opts.sessionAgentId));
+    if (opts.types?.length) conditions.push(inArray(eventsTable.type, opts.types));
     const query = db
       .select()
       .from(eventsTable)
@@ -183,14 +180,11 @@ export class EventBus extends EventEmitter {
     return rows.map(rowToEvent);
   }
 
-  /** The `limit` most recent events before `beforeId` (oldest first): Activity "Load older". */
-  public getEventsBefore(
-    sessionId: string,
-    beforeId: number,
-    opts: { sessionAgentId?: string; limit?: number } = {}
-  ): AgentEvent[] {
+  /** The `limit` most recent events before `beforeId` (oldest first): chat pages, Activity "Load older". */
+  public getEventsBefore(sessionId: string, beforeId: number, opts: EventQuery = {}): AgentEvent[] {
     const conditions = [eq(eventsTable.sessionId, sessionId), lt(eventsTable.id, beforeId)];
     if (opts.sessionAgentId) conditions.push(eq(eventsTable.sessionAgentId, opts.sessionAgentId));
+    if (opts.types?.length) conditions.push(inArray(eventsTable.type, opts.types));
     return getDb()
       .select()
       .from(eventsTable)
@@ -201,6 +195,13 @@ export class EventBus extends EventEmitter {
       .reverse()
       .map(rowToEvent);
   }
+}
+
+/** Filters of the event history queries; `types` keeps only those event types (e.g. what a chat shows). */
+export interface EventQuery {
+  sessionAgentId?: string;
+  limit?: number;
+  types?: string[];
 }
 
 function rowToEvent(r: typeof eventsTable.$inferSelect): AgentEvent {

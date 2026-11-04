@@ -143,6 +143,7 @@ export class SdkDriver implements AgentDriver {
       cwd: options.cwd,
       systemPrompt: options.systemPrompt,
       model: options.model,
+      fallbackModel: options.fallbackModel,
       tools: options.tools,
       allowedTools: options.allowedTools,
       resume: options.resumeSessionId,

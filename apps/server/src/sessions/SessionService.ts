@@ -26,7 +26,7 @@ import { ensureDefaultSupervisor } from '../resources/agents/defaultSupervisor.j
 import { getAppSettings } from '../settings/appSettings.js';
 import { deepMerge } from '../lib/deepMerge.js';
 import { nanoid } from 'nanoid';
-import { eq, inArray, asc, notInArray, isNull, isNotNull, and, sql } from 'drizzle-orm';
+import { eq, inArray, desc, lt, notInArray, isNull, isNotNull, and, sql } from 'drizzle-orm';
 import { EventBus } from '../events/EventBus.js';
 import { UploadService } from '../uploads/UploadService.js';
 
@@ -204,6 +204,7 @@ export class SessionService implements TaskHost {
       configGroups: session.settings.configGroups,
       idleSuspendMinutes: session.settings.idleSuspendMinutes ?? app.limits.defaults.idleSuspendMinutes,
       defaultModel: canDelegate ? app.models.defaults.supervisor : app.models.defaults.worker,
+      fallbackModel: app.models.defaults.fallback,
       maxTurns: session.settings.limits.maxTurns,
       promptAppendix,
       limiter: this.limiter,
@@ -618,16 +619,25 @@ export class SessionService implements TaskHost {
     return this.taskManager.listTasks(sessionId);
   }
 
-  public async getSessionMessages(sessionId: string, sessionAgentId?: string) {
+  /** The `limit` newest messages (before `before`, a createdAt), oldest first. */
+  public async getSessionMessages(
+    sessionId: string,
+    sessionAgentId?: string,
+    page: { before?: number; limit?: number } = {}
+  ) {
     const agentIds = sessionAgentId ? [sessionAgentId] : (await this.getSessionAgents(sessionId)).map((a) => a.id);
     if (agentIds.length === 0) return [];
 
+    const conditions = [inArray(messagesTable.sessionAgentId, agentIds)];
+    if (page.before) conditions.push(lt(messagesTable.createdAt, page.before));
     const rows = getDb()
       .select()
       .from(messagesTable)
-      .where(inArray(messagesTable.sessionAgentId, agentIds))
-      .orderBy(asc(messagesTable.createdAt))
-      .all();
+      .where(and(...conditions))
+      .orderBy(desc(messagesTable.createdAt))
+      .limit(page.limit ?? 200)
+      .all()
+      .reverse();
 
     return rows.map((r) => {
       let contentText = '';

@@ -117,7 +117,8 @@ export const eventsTable = sqliteTable(
     payload: text('payload').notNull(), // JSON
     ts: integer('ts').notNull(),
   },
-  (t) => [index('events_session_id_idx').on(t.sessionId, t.id)]
+  // The second index serves per-agent history (chat pages, Activity) without scanning the whole session
+  (t) => [index('events_session_id_idx').on(t.sessionId, t.id), index('events_agent_id_idx').on(t.sessionAgentId, t.id)]
 );
 
 export const attachmentsTable = sqliteTable('attachments', {

@@ -132,7 +132,6 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
         status: sessions.peekRuntime(a.id)?.getStatus() ?? a.status,
       })),
       tasks: sessions.getSessionTasks(id),
-      messages: await sessions.getSessionMessages(id),
       approvals: approvals.list('pending').filter((a) => a.sessionId === id),
       agentStats: sessions.getAgentStats(id),
       runningProcesses: sessions.getRunningProcessCount(id),
@@ -164,15 +163,34 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
 
   fastify.get('/api/sessions/:id/events', async (req) => {
     const { id } = req.params as { id: string };
-    const { after, before, agent, limit } = req.query as {
+    const { after, before, agent, limit, types } = req.query as {
       after?: string;
       before?: string;
       agent?: string;
       limit?: string;
+      types?: string;
     };
-    const opts = { sessionAgentId: agent, limit: Math.min(parseInt(limit || '500', 10) || 500, 2000) };
+    const opts = {
+      sessionAgentId: agent,
+      limit: Math.min(parseInt(limit || '500', 10) || 500, 2000),
+      types: types?.split(',').filter(Boolean),
+    };
     if (before) return eventBus.getEventsBefore(id, parseInt(before, 10) || 0, opts);
     return eventBus.getEventsAfter(id, parseInt(after || '0', 10) || 0, opts);
+  });
+
+  // Stored messages, newest page first (the web chat pages through /events): ?agent=&before=<createdAt>&limit=
+  fastify.get('/api/sessions/:id/messages', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { agent, before, limit } = req.query as { agent?: string; before?: string; limit?: string };
+    if (!sessions.getSession(id)) {
+      reply.code(404).send({ error: 'Session not found' });
+      return;
+    }
+    return sessions.getSessionMessages(id, agent, {
+      before: before ? parseInt(before, 10) || undefined : undefined,
+      limit: Math.min(parseInt(limit || '200', 10) || 200, 1000),
+    });
   });
 
   // ---------------------------------------------------------------- tree

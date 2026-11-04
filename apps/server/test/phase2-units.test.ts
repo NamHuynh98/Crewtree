@@ -109,13 +109,39 @@ describe('FileLockManager (PLAN.md 5.2)', () => {
 });
 
 describe('default Supervisor (PLAN.md 4.1)', () => {
-  it('picks Opus > Sonnet > Haiku, newest version, 1M variant', () => {
+  it("follows the account's recommended model, as an alias that tracks new releases", () => {
+    const account = [
+      { value: 'default', resolvedModel: 'claude-opus-5-5', displayName: 'Default (recommended)', description: '' },
+      { value: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5', description: '' },
+      { value: 'sonnet', resolvedModel: 'claude-sonnet-5-5', displayName: 'Sonnet 5.5', description: '' },
+      { value: 'fable', resolvedModel: 'claude-fable-5-1', displayName: 'Fable 5.1', description: '' },
+      { value: 'claude-opus-4-8', resolvedModel: 'claude-opus-4-8', displayName: 'Opus 4.8', description: '' },
+    ];
+    expect(pickBestModel(account)).toBe('opus');
+    // A future release or another family recommended for the account: no code change needed
+    const future = [
+      { value: 'default', resolvedModel: 'claude-sonnet-9-0', displayName: 'Default (recommended)', description: '' },
+      { value: 'sonnet', resolvedModel: 'claude-sonnet-9-0', displayName: 'Sonnet 9', description: '' },
+      { value: 'opus', resolvedModel: 'claude-opus-7-5', displayName: 'Opus 7.5', description: '' },
+    ];
+    expect(pickBestModel(future)).toBe('sonnet');
+    const fable = [{ value: 'default', resolvedModel: 'claude-fable-6', displayName: 'Default', description: '' }];
     expect(
       pickBestModel([
-        { value: 'default', resolvedModel: 'claude-opus-5-5', displayName: 'Default', description: '' },
+        ...fable,
+        { value: 'fable', resolvedModel: 'claude-fable-6', displayName: 'Fable 6', description: '' },
+      ])
+    ).toBe('fable');
+    // Recommended model without an alias: its concrete id
+    expect(pickBestModel(fable)).toBe('claude-fable-6');
+  });
+
+  it('without a recommendation: Opus > Sonnet > Haiku, newest version, 1M variant', () => {
+    expect(
+      pickBestModel([
         { value: 'sonnet', resolvedModel: 'claude-sonnet-5-5', displayName: 'Sonnet 5.5', description: '' },
         { value: 'claude-opus-4-8', resolvedModel: 'claude-opus-4-8', displayName: 'Opus 4.8', description: '' },
-        { value: 'fable', resolvedModel: 'claude-fable-5-1', displayName: 'Fable 5.1', description: '' },
+        { value: 'claude-opus-5-5', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5', description: '' },
       ])
     ).toBe('claude-opus-5-5');
     expect(
@@ -164,5 +190,27 @@ describe('git checkpoints (PLAN.md 5.4)', () => {
     await GitCheckpoint.restore(repo, cp.ref);
     expect(fs.readFileSync(path.join(repo, 'a.txt'), 'utf8')).toBe('two');
     expect((await GitCheckpoint.list(repo, 'sess')).map((c) => c.n)).toEqual([1]);
+  });
+});
+
+describe('agent frontmatter parsing (found in the MVP 3-level run)', () => {
+  it('accepts `delegates` as a comma list like `tools`', async () => {
+    const { parseAgentSnapshot } = await import('../src/runtime/agentDefinition.js');
+    const fm = (delegates: string) =>
+      parseAgentSnapshot(`---\nname: lead\ncanDelegate: true\ndelegates: ${delegates}\n---\nLead.`).frontmatter;
+    expect(fm('implementer').delegates).toEqual(['implementer']);
+    expect(fm('implementer, reviewer').delegates).toEqual(['implementer', 'reviewer']);
+    expect(fm('"*"').delegates).toBe('*');
+    expect(fm('[a, b]').delegates).toEqual(['a', 'b']);
+  });
+
+  it('drops only an invalid field instead of resetting the whole frontmatter', async () => {
+    const { parseAgentSnapshot } = await import('../src/runtime/agentDefinition.js');
+    const { frontmatter } = parseAgentSnapshot(
+      `---\nname: lead\nmodel: haiku\ncanDelegate: true\nmaxTurns: lots\n---\nLead.`
+    );
+    expect(frontmatter.canDelegate).toBe(true);
+    expect(frontmatter.model).toBe('haiku');
+    expect(frontmatter.maxTurns).toBeUndefined();
   });
 });

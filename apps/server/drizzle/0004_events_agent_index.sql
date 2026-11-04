@@ -1,0 +1,1 @@
+CREATE INDEX `events_agent_id_idx` ON `events` (`session_agent_id`,`id`);

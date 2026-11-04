@@ -487,6 +487,37 @@ describe('changes made through Bash (PLAN.md 5.3)', () => {
       ['generated.txt', 'bash', 'agent-1', 'task-1'],
     ]);
   }, 10000);
+
+  it('reports a Bash change to a file another agent holds as a conflict', async () => {
+    const { FileActivity } = await import('../src/files/FileActivity.js');
+    const { EventBus } = await import('../src/events/EventBus.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crewtree-bash-lock-'));
+    const file = path.join(dir, 'shared.ts');
+    fs.writeFileSync(file, 'a');
+    const locks = FileLockManager.getInstance();
+    locks.acquire(file, { sessionId: 'lock-session', sessionAgentId: 'holder', agentName: 'coder-a', taskTitle: 'A' });
+    const conflicts: AgentEvent[] = [];
+    const onEvent = (e: AgentEvent) => e.type === 'file.conflict' && conflicts.push(e);
+    EventBus.getInstance().on('event', onEvent);
+    const activity = FileActivity.getInstance();
+    activity.watchSession('lock-session', dir);
+    await new Promise((r) => setTimeout(r, 300));
+
+    activity.bashStarted('lock-session', 'intruder');
+    fs.writeFileSync(file, 'b');
+    await waitFor(() => conflicts.length > 0, 4000, 'conflict reported');
+    activity.bashEnded('intruder');
+    await activity.unwatchSession('lock-session');
+    EventBus.getInstance().off('event', onEvent);
+    locks.releaseAgent('holder');
+    expect(conflicts[0].payload).toMatchObject({
+      path: 'shared.ts',
+      agentId: 'intruder',
+      holderAgentId: 'holder',
+      holderTask: 'A',
+      via: 'Bash',
+    });
+  }, 10000);
 });
 
 describe('no redundant notices (found in the real 3-level run)', () => {

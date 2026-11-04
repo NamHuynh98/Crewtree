@@ -9,7 +9,16 @@ export interface ClaudeStatusInfo {
 }
 
 /** Sidebar footer: Claude Code logged in / not logged in / rate limited (UI-WIREFRAMES 0). */
-export function ClaudeStatus({ status, serverOnline }: { status: ClaudeStatusInfo | null; serverOnline: boolean }) {
+export function ClaudeStatus({
+  status,
+  serverOnline,
+  compact = false,
+}: {
+  status: ClaudeStatusInfo | null;
+  serverOnline: boolean;
+  /** Collapsed sidebar: only the dot, the text goes in the tooltip */
+  compact?: boolean;
+}) {
   const { t } = useTranslation();
 
   let dot = 'text-zinc-400';
@@ -30,6 +39,17 @@ export function ClaudeStatus({ status, serverOnline }: { status: ClaudeStatusInf
     text = t('claude.loggedIn');
   } else if (status?.login === 'unknown') {
     text = t('claude.unknown');
+  }
+
+  if (compact) {
+    const label = serverOnline ? `${t('claude.label')}: ${text}` : text;
+    return (
+      <div className="flex justify-center text-[11px]" title={hint ? `${label}\n${hint}` : label} aria-label={label}>
+        <span aria-hidden className={cn('leading-4', dot)}>
+          ●
+        </span>
+      </div>
+    );
   }
 
   return (

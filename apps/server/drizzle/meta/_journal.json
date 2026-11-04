@@ -29,6 +29,13 @@
       "when": 1793670105123,
       "tag": "0003_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793790332787,
+      "tag": "0004_events_agent_index",
+      "breakpoints": true
     }
   ]
 }

@@ -92,7 +92,9 @@ const TOOL_SPECS: Array<{
   },
   {
     name: 'wait_for_tasks',
-    description: 'Wait until tasks finish or the timeout elapses. Returns results, still-running tasks and questions.',
+    description:
+      'Wait until tasks finish or the timeout elapses. Returns results, still-running tasks, questions, and ' +
+      'user_interventions: messages the user sent directly to your children from the Crewtree UI (genuine, from the user).',
     schema: WaitForTasksInputSchema,
     delegateOnly: true,
   },

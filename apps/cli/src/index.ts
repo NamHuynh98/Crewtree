@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { Command } from 'commander';
 import { cliVersion, files } from './layout.js';
-import { health, openBrowser, readConfig, startServer, stopServer } from './server.js';
+import { health, openBrowser, readConfig, serveForeground, startServer, stopServer } from './server.js';
 import { describeInstall, printUpdateNotice, rollback, update } from './update.js';
 import { autostart, doctor, uninstall } from './system.js';
 import { c, CliError, fail, info, ok, warn } from './ui.js';
@@ -141,12 +141,24 @@ program.command('rollback').description('go back to the previous version and its
 
 program
   .command('autostart')
-  .description('start Crewtree when you log in (launchd / Task Scheduler)')
+  .description('start Crewtree when you log in (launchd / Task Scheduler / systemd)')
   .argument('<mode>', 'on | off')
   .action(
     action(async (mode: string) => {
       if (mode !== 'on' && mode !== 'off') throw new CliError('Use: crewtree autostart on|off');
       autostart(mode);
+    })
+  );
+
+// Used by autostart (launchd, systemd, Task Scheduler); not meant to be typed
+program
+  .command('serve', { hidden: true })
+  .option('--detach', 'start in the background and return (Windows Task Scheduler)')
+  .action(
+    action(async (opts: { detach?: boolean }) => {
+      if (!opts.detach) return serveForeground();
+      if (!(await health())) await startServer();
+      return 0;
     })
   );
 

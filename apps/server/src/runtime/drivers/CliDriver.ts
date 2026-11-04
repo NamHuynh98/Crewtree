@@ -55,6 +55,7 @@ export class CliDriver implements AgentDriver {
       '--include-partial-messages',
     ];
     if (options.model) args.push('--model', options.model);
+    if (options.fallbackModel) args.push('--fallback-model', options.fallbackModel);
     if (options.systemPrompt) args.push('--system-prompt', options.systemPrompt);
     if (this.sessionId) args.push('--resume', this.sessionId);
     if (options.tools) args.push('--tools', options.tools.join(','));

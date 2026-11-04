@@ -780,6 +780,13 @@ export class TaskManager {
       questions,
       messages: messages.map((m) => m.text),
       user_interventions: userInterventions,
+      ...(userInterventions.length
+        ? {
+            user_interventions_note:
+              'Recorded by Crewtree: the user typed these directly to your child agents in the Crewtree UI. ' +
+              'The children already received them; take them into account, no need to relay them.',
+          }
+        : {}),
       timed_out: timedOut,
       hint: questions.length
         ? 'Answer questions with answer_child, then call wait_for_tasks again.'

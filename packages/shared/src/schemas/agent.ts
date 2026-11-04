@@ -2,6 +2,22 @@
 import { z } from 'zod';
 import { AGENT_STATUSES, RESOURCE_SCOPES, RUNTIMES } from '../constants.js';
 
+/** `delegates: a, b` (like `tools`) or a YAML list; `*` = any agent. */
+const DelegatesSchema = z
+  .preprocess(
+    (v) =>
+      typeof v === 'string' && v.trim() !== '*'
+        ? v
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : typeof v === 'string'
+          ? '*'
+          : v,
+    z.union([z.literal('*'), z.array(z.string())])
+  )
+  .default('*');
+
 export const AgentFrontmatterSchema = z.object({
   name: z.string().min(1),
   description: z.string().default(''),
@@ -11,7 +27,7 @@ export const AgentFrontmatterSchema = z.object({
   color: z.string().optional(),
   icon: z.string().optional(),
   canDelegate: z.boolean().default(false),
-  delegates: z.union([z.literal('*'), z.array(z.string())]).default('*'),
+  delegates: DelegatesSchema,
   maxTurns: z.number().int().positive().optional(),
   skills: z.array(z.string()).optional(),
   mcpServers: z.array(z.string()).optional(),

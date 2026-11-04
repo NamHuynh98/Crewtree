@@ -14,7 +14,16 @@ import { modelLabel } from '@/features/model-picker/models';
 import { useAgents } from '@/pages/AgentsPage';
 import { readAgentFields } from '@/features/resources/agentFile';
 import { cn } from '@/lib/utils';
-import { applyChatEvent, BUSY_STATUSES, crewtreeTool, toolOutputText, toolSummary, type ChatMessage } from '../chat';
+import {
+  applyChatEvent,
+  BUSY_STATUSES,
+  crewtreeTool,
+  fetchChatPage,
+  toolOutputText,
+  toolSummary,
+  type ChatMessage,
+} from '../chat';
+import { ChatScroll } from '../ChatScroll';
 import { MessageList, type ExtraEntry } from '../MessageList';
 import {
   AGENT_BAR,
@@ -207,7 +216,7 @@ function toRows(events: AgentEvent[]): ActivityRow[] {
         rows.push({ id, ts: e.ts, kind: 'text', event: e });
         break;
       case 'agent.status':
-        if (p.status === 'error' || p.status === 'throttled')
+        if (p.status === 'error' || p.status === 'throttled' || p.modelFallback)
           rows.push({ id, ts: e.ts, kind: p.status === 'error' ? 'error' : 'status', event: e });
         break;
       case 'approval.created':
@@ -445,7 +454,11 @@ function ActivityTab({
             >
               <span className="w-14 shrink-0 whitespace-nowrap text-[10px] text-muted-foreground">{time(r.ts)}</span>
               <span>
-                ⚠ {p.error ?? (p.status === 'throttled' ? t('drawer.throttled') : (p.subtype ?? t('chat.turnEnded')))}
+                ⚠{' '}
+                {p.modelFallback
+                  ? t('drawer.modelFallback', { from: p.modelFallback.from, to: p.modelFallback.to })
+                  : (p.error ??
+                    (p.status === 'throttled' ? t('drawer.throttled') : (p.subtype ?? t('chat.turnEnded'))))}
               </span>
             </div>
           );
@@ -500,18 +513,22 @@ function ChatTab({
   const { t } = useTranslation();
   const { subscribe } = ws;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hasOlder, setHasOlder] = useState(false);
+  const cursor = useRef<number | undefined>(undefined);
   const sessionId = ws.session!.id;
-  const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isSupervisor) return;
     let cancelled = false;
-    api<AgentEvent[]>(`/api/sessions/${sessionId}/events?after=0&agent=${agent.id}&limit=2000`)
-      .then((events) => {
+    setMessages([]);
+    setHasOlder(false);
+    fetchChatPage(sessionId, agent.id)
+      .then((page) => {
         if (cancelled) return;
-        let history: ChatMessage[] = [];
-        for (const e of events) if (e.type !== 'agent.status') history = applyChatEvent(history, e, true);
-        setMessages(history);
+        cursor.current = page.cursor;
+        setHasOlder(page.hasOlder);
+        // Live events that arrived while loading stay after the history
+        setMessages((live) => [...page.messages, ...live]);
       })
       .catch(() => undefined);
     const off = subscribe((e) => {
@@ -525,13 +542,21 @@ function ChatTab({
   }, [sessionId, agent.id, isSupervisor, subscribe]);
 
   const shown = isSupervisor ? ws.chat : messages;
-  useEffect(() => {
-    bottom.current?.scrollIntoView();
-  }, [shown]);
+  const shownHasOlder = isSupervisor ? ws.chatHasOlder : hasOlder;
+  const loadOlder = async () => {
+    if (isSupervisor) return ws.loadOlderChat();
+    if (!cursor.current) return;
+    const page = await fetchChatPage(sessionId, agent.id, cursor.current);
+    cursor.current = page.cursor;
+    setHasOlder(page.hasOlder);
+    setMessages((prev) => [...page.messages, ...prev]);
+  };
+  // Older tasks belong with older messages: not shown until that page is loaded
+  const oldestShown = shownHasOlder ? (shown.find((m) => m.ts)?.ts ?? 0) : 0;
 
   // Tasks from the parent read as messages from it (UI-WIREFRAMES 4 Chat)
   const extra: ExtraEntry[] = ws.tasks
-    .filter((x) => x.toAgentId === agent.id && x.fromAgentId)
+    .filter((x) => x.toAgentId === agent.id && x.fromAgentId && x.createdAt >= oldestShown)
     .map((x) => {
       const from = ws.agents.find((a) => a.id === x.fromAgentId);
       return {
@@ -549,7 +574,13 @@ function ChatTab({
   );
   return (
     <>
-      <div className="flex-1 overflow-y-auto p-3">
+      <ChatScroll
+        firstKey={shown[0]?.id}
+        lastKey={shown[shown.length - 1]?.id}
+        dep={[shown, extra.length]}
+        hasOlder={shownHasOlder}
+        onLoadOlder={loadOlder}
+      >
         <MessageList
           messages={shown}
           agents={ws.agents}
@@ -559,8 +590,7 @@ function ChatTab({
           onOpenFile={(p) => onOpenFile(p)}
           onInterrupt={() => void ws.interrupt(agent.id)}
         />
-        <div ref={bottom} />
-      </div>
+      </ChatScroll>
       <div className="border-t border-border p-2">
         <Composer
           ctx={{ sessionId }}

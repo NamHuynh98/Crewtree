@@ -58,6 +58,19 @@ describe('local server security (PLAN.md 15.3)', () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it('rejects API reads from a foreign page even with a cookie', async () => {
+    const cookies = { crewtree_session: createSessionCookie() };
+    for (const headers of [{ origin: 'https://evil.com' }, { origin: 'null' }, { 'sec-fetch-site': 'cross-site' }]) {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/sessions',
+        headers: { host: HOST, ...headers },
+        cookies,
+      });
+      expect(res.statusCode).toBe(403);
+    }
+  });
+
   it('rejects WebSocket upgrades without a cookie', async () => {
     const res = await app.inject({ method: 'GET', url: '/ws', headers: { host: HOST } });
     expect(res.statusCode).toBe(401);
@@ -191,8 +204,12 @@ describe('session chat over REST with FakeDriver', () => {
         await app.inject({ method: 'GET', url: `/api/sessions/${session.id}`, headers: { host: HOST }, cookies })
       ).json();
     }
-    expect(detail.messages.map((m: any) => m.role)).toEqual(['user', 'assistant']);
-    expect(detail.messages[1].content).toContain('ping');
+    expect(detail.messages).toBeUndefined(); // the session detail stays small; history is paged
+    const messages = (
+      await app.inject({ method: 'GET', url: `/api/sessions/${session.id}/messages`, headers: { host: HOST }, cookies })
+    ).json();
+    expect(messages.map((m: any) => m.role)).toEqual(['user', 'assistant']);
+    expect(messages[1].content).toContain('ping');
     expect(detail.session.totalTokens).toBe(30); // input + output, cache reads excluded
 
     const events = (
@@ -205,5 +222,49 @@ describe('session chat over REST with FakeDriver', () => {
     ).json();
     expect(events.some((e: any) => e.type === 'agent.text.done')).toBe(true);
     expect(events.some((e: any) => e.type === 'agent.text.delta')).toBe(false);
+  });
+});
+
+describe('paged history (soak: the session detail used to carry every message)', () => {
+  it('pages messages and chat events newest first', async () => {
+    const cookies = { crewtree_session: createSessionCookie() };
+    const get = (url: string) =>
+      app.inject({ method: 'GET', url, headers: { host: HOST }, cookies }).then((r) => r.json());
+    const { session } = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/sessions',
+        headers: { host: HOST },
+        cookies,
+        payload: { title: 'Paging', cwd: process.cwd() },
+      })
+    ).json();
+    for (const text of ['one', 'two', 'three']) {
+      await app.inject({
+        method: 'POST',
+        url: `/api/sessions/${session.id}/messages`,
+        headers: { host: HOST },
+        cookies,
+        payload: { content: text },
+      });
+      for (let i = 0; i < 200; i++) {
+        const all = await get(`/api/sessions/${session.id}/messages`);
+        if (all.filter((m: any) => m.role === 'assistant').length === ['one', 'two', 'three'].indexOf(text) + 1) break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    }
+    const all = await get(`/api/sessions/${session.id}/messages`);
+    expect(all).toHaveLength(6);
+    const newest = await get(`/api/sessions/${session.id}/messages?limit=2`);
+    expect(newest.map((m: any) => m.id)).toEqual(all.slice(4).map((m: any) => m.id));
+    const older = await get(`/api/sessions/${session.id}/messages?limit=2&before=${newest[0].createdAt}`);
+    expect(older.map((m: any) => m.id)).toEqual(all.slice(2, 4).map((m: any) => m.id));
+
+    const supervisor = session.supervisorAgentId;
+    const chat = await get(
+      `/api/sessions/${session.id}/events?agent=${supervisor}&before=999999999999&limit=500&types=message.created,agent.text.done`
+    );
+    expect(new Set(chat.map((e: any) => e.type))).toEqual(new Set(['message.created', 'agent.text.done']));
+    expect(chat.filter((e: any) => e.type === 'message.created')).toHaveLength(3);
   });
 });

@@ -30,7 +30,7 @@
 | 19 | Tên dự án | **Crewtree** (crew + tree). Đổi từ tên tạm "Conductor" vì trùng với app https://conductor.build. Đã kiểm tra 21/10/2026: npm `crewtree` còn trống, GitHub chưa có repo trùng tên |
 | 20 | License | **Apache-2.0**, bản quyền đứng tên cá nhân (dự án cá nhân, không liên quan công ty). Kèm `NOTICE`, `TRADEMARKS.md`, DCO, kiểm tra license dependency, ký release (mục 21) |
 | 21 | Phân phối | Hiện tại chỉ qua GitHub Releases. **Publish npm là dự định tương lai**, chưa làm |
-| 22 | Supervisor mặc định | Nếu thư viện chưa có agent `role: supervisor`, Crewtree tự tạo `crewtree-supervisor` trong scope Crewtree (`~/.crewtree/agents/`) với **model tốt nhất** tài khoản dùng được; đã có thì không tạo lại, không ghi đè (mục 4.1) |
+| 22 | Supervisor mặc định | Nếu thư viện chưa có agent `role: supervisor`, Crewtree tự tạo `crewtree-supervisor` trong scope Crewtree (`~/.crewtree/agents/`) với model tài khoản đề xuất, ghi bằng alias để tự lên bản mới; đã có thì không tạo lại, không ghi đè (mục 4.1) |
 | 23 | Bảo mật server local | Chỉ nghe `127.0.0.1`, kiểm tra `Host`/`Origin`, token phiên qua cookie `HttpOnly` (mục 15.3) |
 | 24 | Giới hạn đồng thời | Đặt **chung** ở Settings → Limits (cả máy dùng chung quota); session chỉ đặt được mức thấp hơn. Chỉ tính agent **đang sinh output**; agent đang chờ con/chờ duyệt không giữ slot → không deadlock (mục 4.3) |
 | 25 | Kết thúc task | Agent con báo xong bằng `complete_task`, hỏi lại cha bằng `ask_parent`. Mỗi tin nhắn người dùng gửi Supervisor tạo một **root task** (mục 4.2) |
@@ -195,7 +195,7 @@ Tách thành 4 nhóm, bật/tắt riêng trong dialog New session và Session se
 ### 4.1 Mô hình
 - Node gốc là **Supervisor**. Mọi agent có `canDelegate: true` là **node điều phối**, có thể có con.
 - **Supervisor mặc định:** khi server khởi động và khi mở dialog New session, nếu thư viện chưa có agent nào `role: supervisor`, Crewtree tạo `~/.crewtree/agents/crewtree-supervisor.md` (scope Crewtree, Claude Code CLI không thấy) từ template (system prompt ở Phụ lục A.1):
-  - `model`: **model tốt nhất tài khoản dùng được** tại thời điểm tạo, chọn từ ModelCatalog theo thứ tự: dòng Opus > Sonnet > Haiku → phiên bản mới nhất → ưu tiên bản context lớn (vd. 1M). Không lấy được danh sách → alias `opus`.
+  - `model`: model mà tài khoản đề xuất (mục "Default (recommended)" trong ModelCatalog), ghi dưới dạng **alias của họ model** (`opus`, `sonnet`, `fable`…), không ghi ID cố định. Nhờ vậy Claude Code luôn dùng bản mới nhất của họ đó khi có model mới (vd. Opus 7.5), và nhận cả họ model mới mà không cần sửa code. Tài khoản không có mục đề xuất thì chọn theo thứ tự Opus > Sonnet > Haiku → phiên bản mới nhất → bản context lớn. Không có alias thì ghi ID. Không lấy được danh sách → alias `opus`.
   - `tools`: Read, Grep, Glob; tool điều phối luôn được tự thêm khi chạy (mục 3.2); `canDelegate: true`; `delegates: "*"`.
   - Đã có (kể cả đã được sửa) thì **không tạo lại, không ghi đè**. Bị xoá thì lần sau tạo lại. Sửa như agent bình thường.
   - Khi tạo, web hiện thông báo "Created crewtree-supervisor with <model>".
@@ -644,7 +644,7 @@ $env:CREWTREE_VERSION="v0.2.0"; irm …/install.ps1 | iex
 
 `releases/latest/download/` luôn trỏ tới bản release mới nhất (bỏ qua pre-release).
 
-- `install.sh` dành cho macOS; chạy trên Linux/WSL sẽ báo "not supported yet" cho tới Phase 8.
+- `install.sh` dành cho macOS và Linux/WSL (x64/arm64, glibc hoặc musl).
 - `install.ps1` làm đúng 4 bước như `install.sh` (kiểm tra môi trường, tải, kiểm tra SHA256, thiết lập), đặt app vào `%USERPROFILE%\.crewtree\app\<version>\`, tạo `crewtree.cmd`, thêm vào PATH của user (không cần admin) và kiểm tra Git Bash cho Claude Code. Biến môi trường dùng chung (`CREWTREE_VERSION`…).
 
 Các bước của `install.sh` (output tiếng Anh, `[n/4]`, ✓/✕, thời gian):
@@ -772,16 +772,16 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 - **Bảo mật:** request từ origin khác, Host lạ, thiếu cookie đều bị từ chối (mục 15.3).
 
 ### Tiêu chí hoàn thành MVP
-- [ ] Cài bằng `curl … | sh` trên macOS sạch và `irm … | iex` trên Windows sạch; `crewtree` mở được web trong vòng 5 giây trên cả hai.
-- [ ] Agent sẵn có trong `~/.claude/agents` hiện đủ; tạo/sửa trên web ghi đúng file và Claude Code CLI đọc được.
-- [ ] Supervisor mặc định được tạo với model tốt nhất khi thư viện chưa có.
-- [ ] Kịch bản cây 3 tầng (Supervisor → researcher, analyst, lead-coder → 2 implementer) chạy trọn trên tài khoản thật, có ít nhất một lần duyệt quyền, một lần `ask_parent`, một lần chat trực tiếp với node con.
-- [ ] Chạy liên tục 1 giờ không crash; RAM của server không tăng liên tục; agent rảnh tự `suspended` và dựng lại được.
-- [ ] Không có trường hợp hai agent cùng sửa một file mà không bị phát hiện.
-- [ ] Khởi động lại server giữa chừng → session tiếp tục được.
-- [ ] `crewtree update` → `crewtree rollback` thành công với migration thử.
-- [ ] Trang web từ origin khác không gọi được API.
-- [ ] Giao diện EN/VI đầy đủ, `i18n:check` pass.
+- [ ] Cài bằng `curl … | sh` trên macOS sạch và `irm … | iex` trên Windows sạch; `crewtree` mở được web trong vòng 5 giây trên cả hai. — installer từ archive local đã chạy trên runner macOS (arm64, x64) và Windows sạch; bản cài trên Mac khởi động trong 1,1 giây. Còn lại: `curl`/`irm` từ GitHub Release thật (sau khi publish)
+- [x] Agent sẵn có trong `~/.claude/agents` hiện đủ; tạo/sửa trên web ghi đúng file và Claude Code CLI đọc được. — agent viết tay và agent tạo/sửa qua API đều hiện trong thư viện và trong danh sách subagent của `claude -p`
+- [x] Supervisor mặc định được tạo với model tốt nhất khi thư viện chưa có. — `CREWTREE_DIR` mới → `crewtree-supervisor` với `claude-opus-5-5`
+- [x] Kịch bản cây 3 tầng (Supervisor → researcher, analyst, lead-coder → 2 implementer) chạy trọn trên tài khoản thật, có ít nhất một lần duyệt quyền, một lần `ask_parent`, một lần chat trực tiếp với node con. — Sonnet + Haiku, 4 lần duyệt, 2 câu hỏi, chat trực tiếp với researcher; code sinh ra pass 12/12 test
+- [x] Chạy liên tục 1 giờ không crash; RAM của server không tăng liên tục; agent rảnh tự `suspended` và dựng lại được. — FakeDriver, 3 session × 3 agent, 60 phút (3 phút tải / 2 phút nghỉ): 6.197 tin nhắn, 0 lỗi, 0 crash; agent tự `suspended` mỗi chu kỳ nghỉ, 132/132 lần dựng lại thành công. RSS lúc rảnh 229MB → 206MB sau 1 giờ (152MB khi đo lại), không rò rỉ; đỉnh 671MB lúc tải do `GET /api/sessions/:id` trả toàn bộ ~4.100 tin nhắn (~6MB) mỗi lần — đã sửa: endpoint chi tiết không còn trả tin nhắn, chat được phân trang (xem Phase 7)
+- [x] Không có trường hợp hai agent cùng sửa một file mà không bị phát hiện. — scope trùng bị chặn khi giao task; Edit vào file đang bị giữ bị chặn và hiện toast trên UI (chạy thật); sửa qua Bash vào file đang bị giữ được báo `file.conflict` sau khi xảy ra
+- [x] Khởi động lại server giữa chừng → session tiếp tục được. — `kill -9` server giữa turn: task đánh dấu `interrupted`, agent `suspended`, gửi tiếp thì agent nhớ ngữ cảnh trước crash
+- [x] `crewtree update` → `crewtree rollback` thành công với migration thử. — macOS: update chạy migration, rollback trả lại DB trước migration; bản lỗi migration tự khôi phục. Windows: trong smoke test `release.yml`
+- [x] Trang web từ origin khác không gọi được API. — trang trên origin khác (trình duyệt thật) và curl: mọi request `/api`, `/ws` có Origin lạ, `Origin: null`, `Sec-Fetch-Site: cross-site` hay Host lạ đều 403
+- [x] Giao diện EN/VI đầy đủ, `i18n:check` pass.
 
 ---
 
@@ -854,16 +854,33 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 ### Phase 7 — CLI, phát hành và cập nhật (7–8 ngày, gồm Windows)
 - [x] `apps/cli`: open/stop/status/logs/doctor, daemon, pid, health, `POST /api/shutdown` + token
 - [x] Server phục vụ web build, chọn port
-- [ ] `scripts/pack.ts` + `release.yml` (ma trận macOS + Windows, `SHA256SUMS`, upload Release) — đã viết; chờ chạy `release.yml` trên GitHub Actions
+- [ ] `scripts/pack.ts` + `release.yml` (ma trận macOS + Windows, `SHA256SUMS`, upload Release) — build + smoke test 3 nền tảng đã chạy trên Actions (dry run); job publish chờ tag đầu tiên
 - [x] `install.sh` POSIX (phát hiện nền tảng, checksum, thư mục theo version, `current`, PATH, biến môi trường)
 - [x] `crewtree update` / `--check` / `--pre` / `rollback`: sao lưu DB, migration, xử lý session đang chạy, giữ 2 bản
 - [x] Thông báo bản mới: CLI (cache 1 lần/ngày) và banner web; setting `update.check`
-- [ ] **Windows:** `install.ps1` (PowerShell, checksum, PATH của user, `crewtree.cmd`, junction `current`), Task Scheduler cho autostart, `doctor` kiểm tra Git Bash, test cài/cập nhật/rollback trên Windows sạch — đã viết; chờ test trên Windows (job smoke test của `release.yml`)
-- [ ] `autostart` (launchd, Task Scheduler), `uninstall` — `uninstall` đã test; `autostart` chưa chạy thật
+- [ ] **Windows:** `install.ps1` (PowerShell, checksum, PATH của user, `crewtree.cmd`, junction `current`), Task Scheduler cho autostart, `doctor` kiểm tra Git Bash, test cài/cập nhật/rollback trên Windows sạch — cài/khởi động/status/stop/PATH/Git Bash đã chạy trên Windows runner; update → rollback (migration thử) và Task Scheduler đã thêm vào smoke test của `release.yml` (`scripts/smoke-update.mjs`), chờ lần chạy Actions kế tiếp
+- [ ] `autostart` (launchd, Task Scheduler), `uninstall` — `uninstall` đã test; `autostart` trên macOS đã test trong HOME sandbox (plist hợp lệ, gọi `launchctl` đúng, chạy đúng lệnh của plist → server lên qua `current`); bước launchd thật và Task Scheduler chạy trong smoke test của `release.yml`
 - [x] License và supply chain (mục 21): `LICENSE`, `NOTICE`, `TRADEMARKS.md`, `CONTRIBUTING.md` (DCO), `SECURITY.md`, `licenses/`; CI kiểm tra license dependency, gitleaks, DCO; `release.yml` thêm build provenance attestation
 
+- [x] Chạy được trên mọi máy, không gắn với máy build (làm sau vòng MVP):
+  - `better-sqlite3` là module native build theo phiên bản Node (ABI), nên bản build trên Node 22 không chạy trên Node 24 và ngược lại (đã tái hiện). Bundle giờ mang sẵn binary cho Node 22/24/25/26 (`server/native/`). Mỗi lần CLI khởi động server, nó chọn binary hợp với Node đang chạy; khi không có sẵn thì tải binary dựng sẵn, và chỉ biên dịch khi cả hai cách đều không được (`apps/cli/src/native.ts`). Đã thử: cài một bản rồi chạy lần lượt Node 22 → 24, và trường hợp không có binary sẵn (tải mất 2 giây). Chưa dùng `better-sqlite3` 13 (N-API) vì bản 13.0.3 còn lỗi segfault trên Node 22 (issue #1514).
+  - Autostart không còn ghi cứng đường dẫn Node. `~/.crewtree/autostart.sh` / `autostart.cmd` tìm Node 22+ mỗi lần đăng nhập: Node đã ghi lại lúc bật, rồi `PATH`, nvm, fnm, volta, mise, asdf, Homebrew, `/usr/local`. Sau đó launcher chạy `crewtree serve`. launchd dùng `KeepAlive` nên tự chạy lại khi server crash. Đã thử: đường dẫn Node ghi lại bị xoá và PATH tối giản, launcher vẫn tìm được Node 24 trong nvm.
+- [x] Phân trang lịch sử chat (sau soak 1 giờ):
+  - `GET /api/sessions/:id` không còn trả `messages`; tin nhắn lưu trữ có endpoint riêng `GET /api/sessions/:id/messages?agent=&before=&limit=`.
+  - Chat của Supervisor và chat của node trong drawer tải trang mới nhất trước: 300 sự kiện chat, chỉ gồm các loại cần cho chat (`/events?before=&types=`), và mỗi trang bắt đầu từ một tin nhắn của người dùng để tool call và kết quả nằm cùng trang. Cuộn lên đầu, hoặc bấm "Tải tin nhắn cũ hơn", để tải trang trước; vị trí đọc được giữ nguyên.
+  - Trước đây web tải 2.000 sự kiện *cũ nhất*, nên session dài không hiện được tin mới.
+  - Thêm index `events(session_agent_id, id)` (migration 0004).
+  - Đã thử trên session soak khoảng 4.100 tin: một trang chat 262KB, tải trong 0,01s (trước là 6MB); tải thêm 200 → 400 → 600 tin mà vị trí đọc không đổi; tin mới vẫn tự cuộn xuống cuối.
+  - Còn lại: danh sách task trong endpoint chi tiết chưa phân trang (505 task ≈ 1,2MB trong soak, vì mỗi tin gửi thẳng cho node tạo một root task).
+  - Linux và WSL (kéo từ Phase 8 lên):
+    - `install.sh` nhận Linux x64/arm64, cả glibc lẫn musl;
+    - autostart dùng systemd user service, hoặc XDG autostart khi không có systemd; WSL không có systemd thì báo cách bật;
+    - `release.yml` build thêm `linux-x64` và `linux-arm64` (ubuntu-24.04-arm), CI chạy test thêm trên `ubuntu-latest`;
+    - `release.yml` thêm bước chạy bản cài trên Node 24 (bản được đóng gói bằng Node 22).
+    - Phần Linux chưa chạy thử ở máy này (Docker không chạy); CI sẽ kiểm khi push.
+
 ### Phase 8 — Mở rộng
-- Linux và WSL: `install.sh` cho Linux, build `linux-x64`/`linux-arm64`, systemd user cho autostart, CI thêm `ubuntu-latest`.
+- ~~Linux và WSL~~ (đã làm ở Phase 7, xem trên).
 - Spike file chạy độc lập (Node SEA / `bun build --compile`) để bỏ yêu cầu Node 22.
 - (Tương lai, khi có nhu cầu) Publish npm `crewtree` bằng Trusted Publishing + `--provenance`.
 - Mention theo symbol, sửa file trực tiếp trong viewer, template session, UI cho settings.json/hooks, export transcript, worktree tuỳ chọn cho từng agent.
