@@ -7,15 +7,9 @@ import fastifyStatic from '@fastify/static';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb, closeDb } from './db/index.js';
+import { acquireInstanceLock, releaseInstanceLock } from './instanceLock.js';
 import { appSettingsTable } from './db/schema.js';
-import {
-  ensureDirectories,
-  getClaudeDir,
-  getConfigPath,
-  getCrewtreeDir,
-  getPidPath,
-  getShutdownTokenPath,
-} from './paths.js';
+import { ensureDirectories, getClaudeDir, getConfigPath, getCrewtreeDir, getShutdownTokenPath } from './paths.js';
 import { cleanupEvents, scheduleCleanup, stopCleanup } from './settings/maintenance.js';
 import { ClaudeStatusService } from './claude/ClaudeStatusService.js';
 import {
@@ -326,7 +320,8 @@ export async function createServer() {
     await fastify.close();
     closeDb();
     // The CLI treats a missing pid file as "not running"
-    for (const file of [getPidPath(), getShutdownTokenPath()]) fs.rmSync(file, { force: true });
+    fs.rmSync(getShutdownTokenPath(), { force: true });
+    releaseInstanceLock();
   };
   fastify.decorate('crewtreeShutdown', shutdown);
 
@@ -400,10 +395,21 @@ export async function createServer() {
 }
 
 async function start() {
-  const app = await createServer();
+  // One server per data folder, taken before the database is opened (migrations included)
+  const lock = await acquireInstanceLock();
+  if (!lock.acquired) {
+    console.log(`Crewtree is already running on this data folder (pid ${lock.pid})`);
+    process.exit(0);
+  }
+  let app: Awaited<ReturnType<typeof createServer>>;
+  try {
+    app = await createServer();
+  } catch (err) {
+    releaseInstanceLock();
+    throw err;
+  }
 
-  // Save PID and shutdown token
-  fs.writeFileSync(getPidPath(), `${process.pid}`, 'utf8');
+  // The pid file is the lock (written above); the shutdown token next to it
   const shutdownToken = crypto.randomBytes(24).toString('hex');
   fs.writeFileSync(getShutdownTokenPath(), shutdownToken, { mode: 0o600, encoding: 'utf8' });
 
@@ -450,6 +456,8 @@ async function start() {
     );
   } catch (err) {
     app.log.error(err);
+    releaseInstanceLock();
+    fs.rmSync(getShutdownTokenPath(), { force: true });
     process.exit(1);
   }
 }

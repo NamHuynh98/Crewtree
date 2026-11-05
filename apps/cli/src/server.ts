@@ -95,9 +95,15 @@ export async function startServer(opts: { project?: string; root?: string } = {}
   fs.closeSync(log);
   for (let i = 0; i < 60; i++) {
     await sleep(250);
-    if (child.exitCode !== null) break;
     const h = await health(1000);
     if (h && h.pid === child.pid) return h;
+    if (child.exitCode !== null) {
+      // Exit 0: another start (autostart, a second terminal) won the lock; that server is the one
+      if (child.exitCode === 0) for (let j = 0; j < 60 && !(await health(1000)); j++) await sleep(250);
+      const other = await health(1000);
+      if (other) return other;
+      break;
+    }
   }
   throw new CliError('The server did not start', `See the log: ${files.serverLog()}`);
 }

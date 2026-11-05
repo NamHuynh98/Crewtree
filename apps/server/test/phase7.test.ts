@@ -85,3 +85,24 @@ describe('CLI endpoints (PLAN.md 16.3)', () => {
     expect(health.version).toBe(currentVersion());
   });
 });
+
+describe('one server per data folder (instance lock)', () => {
+  it('takes over a pid file left by a crash, keeps a live one, and releases only its own', async () => {
+    const { spawnSync } = await import('child_process');
+    const { acquireInstanceLock, releaseInstanceLock } = await import('../src/instanceLock.js');
+    const { getPidPath } = await import('../src/paths.js');
+    const pidFile = getPidPath();
+    const deadPid = spawnSync(process.execPath, ['-e', '0']).pid!;
+    fs.writeFileSync(pidFile, `${deadPid}`);
+    expect(await acquireInstanceLock()).toEqual({ acquired: true });
+    expect(fs.readFileSync(pidFile, 'utf8')).toBe(`${process.pid}`);
+    releaseInstanceLock();
+    expect(fs.existsSync(pidFile)).toBe(false);
+
+    // Another server's lock is never removed by us
+    fs.writeFileSync(pidFile, '424242');
+    releaseInstanceLock();
+    expect(fs.readFileSync(pidFile, 'utf8')).toBe('424242');
+    fs.rmSync(pidFile);
+  });
+});
