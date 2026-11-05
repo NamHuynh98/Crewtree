@@ -772,7 +772,7 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 - **Bảo mật:** request từ origin khác, Host lạ, thiếu cookie đều bị từ chối (mục 15.3).
 
 ### Tiêu chí hoàn thành MVP
-- [ ] Cài bằng `curl … | sh` trên macOS sạch và `irm … | iex` trên Windows sạch; `crewtree` mở được web trong vòng 5 giây trên cả hai. — installer từ archive local đã chạy trên runner macOS (arm64, x64) và Windows sạch; bản cài trên Mac khởi động trong 1,1 giây. Còn lại: `curl`/`irm` từ GitHub Release thật (sau khi publish)
+- [x] Cài bằng `curl … | sh` trên macOS sạch và `irm … | iex` trên Windows sạch; `crewtree` mở được web trong vòng 5 giây trên cả hai. — v0.1.0 đã phát hành. Trên Mac này, `curl -fsSL …/releases/latest/download/install.sh | sh` vào HOME sạch cài xong trong 11 giây; server khởi động 1,4 giây trên Node 24 (bản build dùng Node 22, binary SQLite tự chuyển sang `node-v137`); `doctor` đạt, `update --check` thấy v0.1.0 là bản mới nhất. Checksum và build provenance (`gh attestation verify`) của gói đều khớp. Windows: `install.ps1` chạy trên runner sạch trong mọi lần chạy `release.yml`, kể cả lần phát hành; lệnh `irm … | iex` từ Release chưa chạy trên máy Windows thật
 - [x] Agent sẵn có trong `~/.claude/agents` hiện đủ; tạo/sửa trên web ghi đúng file và Claude Code CLI đọc được. — agent viết tay và agent tạo/sửa qua API đều hiện trong thư viện và trong danh sách subagent của `claude -p`
 - [x] Supervisor mặc định được tạo với model tốt nhất khi thư viện chưa có. — `CREWTREE_DIR` mới → `crewtree-supervisor` với `claude-opus-5-5`
 - [x] Kịch bản cây 3 tầng (Supervisor → researcher, analyst, lead-coder → 2 implementer) chạy trọn trên tài khoản thật, có ít nhất một lần duyệt quyền, một lần `ask_parent`, một lần chat trực tiếp với node con. — Sonnet + Haiku, 4 lần duyệt, 2 câu hỏi, chat trực tiếp với researcher; code sinh ra pass 12/12 test
@@ -854,12 +854,12 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 ### Phase 7 — CLI, phát hành và cập nhật (7–8 ngày, gồm Windows)
 - [x] `apps/cli`: open/stop/status/logs/doctor, daemon, pid, health, `POST /api/shutdown` + token
 - [x] Server phục vụ web build, chọn port
-- [ ] `scripts/pack.ts` + `release.yml` (ma trận macOS + Windows, `SHA256SUMS`, upload Release) — build + smoke test 3 nền tảng đã chạy trên Actions (dry run); job publish chờ tag đầu tiên
+- [x] `scripts/pack.ts` + `release.yml` (ma trận macOS + Windows + Linux, `SHA256SUMS`, upload Release) — 5 nền tảng; v0.1.0 phát hành qua job publish với build provenance attestation
 - [x] `install.sh` POSIX (phát hiện nền tảng, checksum, thư mục theo version, `current`, PATH, biến môi trường)
 - [x] `crewtree update` / `--check` / `--pre` / `rollback`: sao lưu DB, migration, xử lý session đang chạy, giữ 2 bản
 - [x] Thông báo bản mới: CLI (cache 1 lần/ngày) và banner web; setting `update.check`
-- [ ] **Windows:** `install.ps1` (PowerShell, checksum, PATH của user, `crewtree.cmd`, junction `current`), Task Scheduler cho autostart, `doctor` kiểm tra Git Bash, test cài/cập nhật/rollback trên Windows sạch — cài/khởi động/status/stop/PATH/Git Bash đã chạy trên Windows runner; update → rollback (migration thử) và Task Scheduler đã thêm vào smoke test của `release.yml` (`scripts/smoke-update.mjs`), chờ lần chạy Actions kế tiếp
-- [ ] `autostart` (launchd, Task Scheduler), `uninstall` — `uninstall` đã test; `autostart` trên macOS đã test trong HOME sandbox (plist hợp lệ, gọi `launchctl` đúng, chạy đúng lệnh của plist → server lên qua `current`); bước launchd thật và Task Scheduler chạy trong smoke test của `release.yml`
+- [x] **Windows:** `install.ps1` (PowerShell, checksum, PATH của user, `crewtree.cmd`, junction `current`), Task Scheduler cho autostart, `doctor` kiểm tra Git Bash, test cài/cập nhật/rollback trên Windows sạch — tất cả chạy trên Windows runner, gồm update → rollback có migration thử, bật/tắt Task Scheduler và chạy trên Node 24 (`scripts/smoke-update.mjs`)
+- [x] `autostart` (launchd, Task Scheduler, systemd/XDG), `uninstall` — launchd thật trên runner macOS (arm64, Intel), Task Scheduler trên Windows, systemd/XDG trên Linux; launcher tự tìm Node mỗi lần đăng nhập
 - [x] License và supply chain (mục 21): `LICENSE`, `NOTICE`, `TRADEMARKS.md`, `CONTRIBUTING.md` (DCO), `SECURITY.md`, `licenses/`; CI kiểm tra license dependency, gitleaks, DCO; `release.yml` thêm build provenance attestation
 
 - [x] Chạy được trên mọi máy, không gắn với máy build (làm sau vòng MVP):

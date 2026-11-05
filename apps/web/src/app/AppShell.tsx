@@ -214,7 +214,7 @@ export function AppShell() {
         <header className="h-12 border-b border-border px-4 flex items-center justify-between bg-card select-none">
           <div className="flex items-center gap-4">
             <NavLink to="/" className="flex items-center gap-2 font-semibold tracking-tight">
-              <span className="text-xl text-primary">◆</span>
+              <img src="/logo.png" alt="" aria-hidden className="h-6 w-6" />
               <span className="text-base">{t('appName')}</span>
             </NavLink>
             <div className="h-4 w-px bg-border" />
