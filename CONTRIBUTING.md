@@ -20,7 +20,8 @@ pnpm lint && pnpm format:check && pnpm i18n:check && pnpm typecheck && pnpm test
 
 - Add the SPDX header `// SPDX-License-Identifier: Apache-2.0` to new source files.
 - UI strings go through i18n with both `en` and `vi` keys.
-- Keep the platform rules of `docs/PLAN.md` §16.6 (paths through `paths.ts`, no shell commands, CRLF-safe writes).
+- Keep the code cross-platform: build paths through `paths.ts`, start processes without a shell, and keep the line
+  endings a file already has (LF or CRLF) when writing it.
 
 ## Developer Certificate of Origin (DCO)
 

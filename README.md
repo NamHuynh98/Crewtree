@@ -177,7 +177,7 @@ Report a vulnerability as described in `SECURITY.md`.
   through edit tools, but a change made with a shell command is detected after it happens, not before.
 - **Claude Code only, for now.** The runtime layer is ready for other CLIs (OpenCode, Codex CLI, Gemini CLI),
   but they are not implemented yet.
-- **Young software.** Crewtree is at its first releases (v0.1.x). The design documents in `docs/` are written in Vietnamese.
+- **Young software.** Crewtree is at its first releases (v0.1.x).
 
 ## Architecture
 
@@ -189,7 +189,7 @@ apps/
 packages/
   shared/   types and schemas shared by server, web and CLI
 scripts/    release packing, installers, smoke tests
-docs/       design (PLAN.md), screens (UI-WIREFRAMES.md), early spike report
+docs/       logo and images
 ```
 
 Each agent runs through an `AgentDriver` (Agent SDK first, `claude` CLI as fallback) that emits normalized
@@ -200,8 +200,6 @@ everything the UI shows.
 
 | Document | What is in it |
 |---|---|
-| [`docs/PLAN.md`](docs/PLAN.md) | Design decisions, data model, API, phases and the MVP checklist (Vietnamese) |
-| [`docs/UI-WIREFRAMES.md`](docs/UI-WIREFRAMES.md) | Every screen and its states (Vietnamese) |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to build, test and send changes (DCO sign-off) |
 | [`SECURITY.md`](SECURITY.md) | Reporting vulnerabilities, verifying releases |
 | [`TRADEMARKS.md`](TRADEMARKS.md) | Use of the Crewtree name and logo |
