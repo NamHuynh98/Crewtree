@@ -15,6 +15,12 @@
   <a href="https://github.com/NamHuynh98/Crewtree/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NamHuynh98/Crewtree/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/crewtree-demo.gif" alt="One message to the Supervisor: it plans, delegates to four agents, one of them spawns two more, an edit waits for approval, and the result comes back with every changed file" width="100%" />
+</p>
+
+<p align="center"><sub>One message, seven agents, three levels: the Supervisor plans and delegates, <code>backend-lead</code> spawns two implementers, an edit waits for your approval, and every changed file is listed at the end.</sub></p>
+
 ---
 
 ## Why Crewtree
@@ -78,6 +84,17 @@ The web UI draws the tree live, streams each agent's output, and sends your answ
   Edge, Brave or Chromium is installed, and the UI installs as an app for a Dock / Start menu icon. One-line
   install, `crewtree update` with automatic database backup and `crewtree rollback`, optional start at login,
   English and Vietnamese UI, light and dark theme.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshot-tree.png" alt="The session view: the Supervisor's chat on the left, the live agent tree with tokens, turns and task times on the right" /></td>
+    <td width="50%"><img src="docs/assets/screenshot-changes.png" alt="The Files tab: a file edited by an agent, shown as a diff against the state before the session" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The tree: who did what, how long it took, what it cost</sub></td>
+    <td align="center"><sub>Every edit, by agent, as a diff against the start of the session</sub></td>
+  </tr>
+</table>
 
 ## Supported platforms
 
