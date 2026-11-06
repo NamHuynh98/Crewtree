@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,8 +10,12 @@ import { api, ApiError } from '@/lib/api';
 import { shortenPath } from '@/lib/paths';
 import { Button } from '@/components/ui/button';
 import { StatusDot, sessionVisual } from '@/components/StatusBadge';
-import { NewSessionDialog } from '@/features/sessions/NewSessionDialog';
-import { formatTokens } from '@/features/workspace/agentInfo';
+import { formatTokens } from '@/lib/format';
+
+// Opened on demand: it carries the agent picker and the session settings form
+const NewSessionDialog = lazy(() =>
+  import('@/features/sessions/NewSessionDialog').then((m) => ({ default: m.NewSessionDialog }))
+);
 
 type SessionRow = Session & { activity?: 'running' | 'idle'; agentCount: number; levels: number; lastActiveAt: number };
 
@@ -279,14 +283,16 @@ export function SessionsListPage() {
         )}
       </div>
       {creating && (
-        <NewSessionDialog
-          onClose={() => setCreating(false)}
-          onCreated={(id) => {
-            setCreating(false);
-            void refresh();
-            navigate(`/sessions/${id}`);
-          }}
-        />
+        <Suspense fallback={null}>
+          <NewSessionDialog
+            onClose={() => setCreating(false)}
+            onCreated={(id) => {
+              setCreating(false);
+              void refresh();
+              navigate(`/sessions/${id}`);
+            }}
+          />
+        </Suspense>
       )}
     </main>
   );

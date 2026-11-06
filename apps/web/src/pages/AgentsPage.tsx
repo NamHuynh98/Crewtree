@@ -2,10 +2,11 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import * as Menu from '@radix-ui/react-dropdown-menu';
 import { AlertTriangle, Copy, MoreHorizontal, Pencil, Plus, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAgents } from '@/features/resources/useAgents';
 import { Button } from '@/components/ui/button';
 import { ScopeBadge } from '@/features/resources/ScopeBadge';
 import { WRITABLE_SCOPES, type ResourceItem, type Scope, type WritableScope } from '@/features/resources/types';
@@ -27,9 +28,7 @@ const COLOR_BAR: Record<string, string> = {
 const menuItem =
   'flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-xs outline-none focus:bg-accent data-[disabled]:opacity-50';
 
-export function useAgents() {
-  return useQuery({ queryKey: ['resources', 'agents'], queryFn: () => api<ResourceItem[]>('/api/resources/agents') });
-}
+export { useAgents };
 
 /** Agents library (UI-WIREFRAMES 7): every agent from every source, editable where it is ours. */
 export function AgentsPage() {

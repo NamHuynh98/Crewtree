@@ -164,12 +164,21 @@ export async function createServer() {
 
   if (fs.existsSync(webDistPath)) {
     const indexHtml = fs.readFileSync(path.join(webDistPath, 'index.html'), 'utf8');
-    const sendIndex = (reply: any) => reply.type('text/html').send(injectBoot(indexHtml));
+    // no-cache: after an update the page must name the new hashed assets
+    const sendIndex = (reply: any) =>
+      reply.type('text/html').header('Cache-Control', 'no-cache').send(injectBoot(indexHtml));
 
     await fastify.register(fastifyStatic, {
       root: webDistPath,
       prefix: '/',
       index: false,
+      // Built JS/CSS under /assets/ have a content hash in their name: cache them for good, so a reload only
+      // asks for index.html. Other files (icons, manifest) are revalidated as before.
+      cacheControl: false,
+      setHeaders: (res, filePath) => {
+        const hashed = filePath.includes(`${path.sep}assets${path.sep}`);
+        res.setHeader('Cache-Control', hashed ? 'public, max-age=31536000, immutable' : 'public, max-age=0');
+      },
     });
 
     fastify.get('/', (_req, reply) => sendIndex(reply));

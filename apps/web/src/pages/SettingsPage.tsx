@@ -10,7 +10,7 @@ import { shortenPath } from '@/lib/paths';
 import { useShell } from '@/app/shell';
 import { Button } from '@/components/ui/button';
 import { ModelPicker, useModelCatalog } from '@/features/model-picker/ModelPicker';
-import { formatTokens } from '@/features/workspace/agentInfo';
+import { formatTokens } from '@/lib/format';
 
 type Tab = 'general' | 'models' | 'defaults' | 'limits' | 'account';
 const TABS: Tab[] = ['general', 'models', 'defaults', 'limits', 'account'];

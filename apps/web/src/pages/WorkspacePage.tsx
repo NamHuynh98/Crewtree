@@ -25,7 +25,7 @@ import { StatusBadge, sessionVisual } from '@/components/StatusBadge';
 import { ApprovalList } from '@/components/workspace/ApprovalList';
 import { Composer, type ComposerHandle } from '@/features/composer/Composer';
 import { useModelCatalog } from '@/features/model-picker/ModelPicker';
-import { useAgents } from '@/pages/AgentsPage';
+import { useAgents } from '@/features/resources/useAgents';
 import { AddAgentsDialog, sessionCandidates } from '@/features/sessions/AddAgentsDialog';
 import { useWorkspace } from '@/features/workspace/useWorkspace';
 import { MessageList } from '@/features/workspace/MessageList';

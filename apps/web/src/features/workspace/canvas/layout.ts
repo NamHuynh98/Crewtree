@@ -1,11 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
-import ELK from 'elkjs/lib/elk.bundled.js';
+import type { ELK } from 'elkjs/lib/elk-api.js';
 import type { SessionAgent } from '@crewtree/shared';
 
 export const NODE_WIDTH = 248;
 export const NODE_HEIGHT = 128;
 
-const elk = new ELK();
+let elkReady: Promise<ELK> | undefined;
+
+/**
+ * elkjs is about 1.6 MB, more than the rest of the app: load it only when a tree is drawn, and run it in a Web
+ * Worker so a large layout never blocks the UI. Without workers, the bundled build lays out on the main thread.
+ */
+function getElk(): Promise<ELK> {
+  elkReady ??= (async () => {
+    if (typeof Worker !== 'undefined') {
+      const [{ default: ElkApi }, { default: workerUrl }] = await Promise.all([
+        import('elkjs/lib/elk-api.js'),
+        import('elkjs/lib/elk-worker.min.js?url'),
+      ]);
+      return new ElkApi({ workerUrl });
+    }
+    const { default: ElkBundled } = await import('elkjs/lib/elk.bundled.js');
+    return new ElkBundled();
+  })();
+  return elkReady;
+}
 
 /** Top-down tree layout (elkjs layered), PLAN.md 12 / UI-WIREFRAMES 2. */
 export async function layoutTree(agents: SessionAgent[]): Promise<Record<string, { x: number; y: number }>> {
@@ -25,7 +44,7 @@ export async function layoutTree(agents: SessionAgent[]): Promise<Record<string,
       .filter((a) => a.parentId && ids.has(a.parentId))
       .map((a) => ({ id: `${a.parentId}->${a.id}`, sources: [a.parentId!], targets: [a.id] })),
   };
-  const result = await elk.layout(graph);
+  const result = await (await getElk()).layout(graph);
   const out: Record<string, { x: number; y: number }> = {};
   for (const n of result.children ?? []) out[n.id] = { x: n.x ?? 0, y: n.y ?? 0 };
   return out;

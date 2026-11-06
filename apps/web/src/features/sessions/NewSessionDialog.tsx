@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { ModelPicker, useModelCatalog } from '@/features/model-picker/ModelPicker';
 import { modelLabel } from '@/features/model-picker/models';
 import type { ResourceItem } from '@/features/resources/types';
-import { useAgents } from '@/pages/AgentsPage';
+import { useAgents } from '@/features/resources/useAgents';
 import { SessionSettingsFields } from '@/features/workspace/SessionSettingsPanel';
 import { AddAgentsDialog, sessionCandidates, type ParentOption } from './AddAgentsDialog';
 

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { ModelCatalog } from '@/features/resources/types';
-import { useAgents } from '@/pages/AgentsPage';
+import { useAgents } from '@/features/resources/useAgents';
 import { effectiveModel, isTerminalTask } from '../agentInfo';
 import type { Workspace } from '../useWorkspace';
 import type { DrawerTab } from '../drawer/AgentDrawer';

@@ -6,7 +6,7 @@ import { X } from 'lucide-react';
 import type { AppSettings, SessionSettings } from '@crewtree/shared';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { formatTokens } from './agentInfo';
+import { formatTokens } from '@/lib/format';
 import type { Workspace } from './useWorkspace';
 
 interface Processes {

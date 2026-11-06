@@ -11,7 +11,7 @@ import { Composer } from '@/features/composer/Composer';
 import { ModelPicker } from '@/features/model-picker/ModelPicker';
 import { useModelCatalog } from '@/features/model-picker/ModelPicker';
 import { modelLabel } from '@/features/model-picker/models';
-import { useAgents } from '@/pages/AgentsPage';
+import { useAgents } from '@/features/resources/useAgents';
 import { readAgentFields } from '@/features/resources/agentFile';
 import { cn } from '@/lib/utils';
 import {

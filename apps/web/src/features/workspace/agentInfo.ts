@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Approval, SessionAgent, Task } from '@crewtree/shared';
 import { readAgentFields } from '@/features/resources/agentFile';
+import { formatTokens } from '@/lib/format';
 import type { AgentStats } from './useWorkspace';
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled', 'interrupted']);
@@ -87,11 +88,7 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`;
 }
 
-export function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
+export { formatTokens };
 
 export const AGENT_BAR: Record<string, string> = {
   violet: 'bg-violet-500',
