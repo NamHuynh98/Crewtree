@@ -53,8 +53,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const listRef = useRef<HTMLUListElement>(null);
   const enabled = open;
   const { data: sessions = [] } = useQuery({
-    queryKey: ['sessions'],
-    queryFn: () => api<Session[]>('/api/sessions'),
+    // The most recent sessions; older ones are on the Sessions page
+    queryKey: ['sessions', 'palette'],
+    queryFn: () => api<{ items: Session[] }>('/api/sessions?limit=200').then((page) => page.items),
     enabled,
   });
   const { data: agents = [] } = useQuery({

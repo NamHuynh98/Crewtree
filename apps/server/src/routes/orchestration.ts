@@ -51,10 +51,16 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
 
   // ---------------------------------------------------------------- sessions
 
-  // Sessions page rows: agents, tree depth, last activity (UI-WIREFRAMES 0)
-  fastify.get('/api/sessions', async () => {
+  // Sessions page rows: agents, tree depth, last activity, newest first. One page at a time
+  // (`limit`, `offset`), filtered by `q` (title), `status` (a session status or `running`) and `cwd`.
+  // `total` counts the filtered rows; `cwds` lists every project so the filter menu stays complete.
+  fastify.get('/api/sessions', async (req) => {
+    const query = req.query as { limit?: string; offset?: string; q?: string; status?: string; cwd?: string };
+    const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 500);
+    const offset = Math.max(Number(query.offset) || 0, 0);
+    const q = query.q?.trim().toLowerCase();
     const stats = sessions.getSessionTreeStats();
-    return (await sessions.getSessions())
+    const all = (await sessions.getSessions())
       .map((s) => ({
         ...s,
         activity: sessions.getSessionActivity(s.id),
@@ -63,6 +69,19 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
         lastActiveAt: Math.max(s.updatedAt, stats.get(s.id)?.lastActiveAt ?? 0),
       }))
       .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+    const matching = all.filter(
+      (s) =>
+        (!query.status ||
+          query.status === 'all' ||
+          (query.status === 'running' ? s.activity === 'running' : s.status === query.status)) &&
+        (!query.cwd || query.cwd === 'all' || s.cwd === query.cwd) &&
+        (!q || s.title.toLowerCase().includes(q))
+    );
+    return {
+      items: matching.slice(offset, offset + limit),
+      total: matching.length,
+      cwds: [...new Set(all.map((s) => s.cwd))],
+    };
   });
 
   fastify.post('/api/sessions', async (req, reply) => {
@@ -126,7 +145,10 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
         ...a,
         status: sessions.peekRuntime(a.id)?.getStatus() ?? a.status,
       })),
-      tasks: sessions.getSessionTasks(id),
+      // Full details can be long reports: the drawer loads them on demand
+      tasks: sessions
+        .getSessionTasks(id)
+        .map(({ resultDetails, ...task }) => (resultDetails ? { ...task, hasDetails: true } : task)),
       approvals: approvals.list('pending').filter((a) => a.sessionId === id),
       agentStats: sessions.getAgentStats(id),
       runningProcesses: sessions.getRunningProcessCount(id),

@@ -19,6 +19,8 @@ export const TaskSchema = z.object({
   answer: z.string().nullable().optional(),
   resultSummary: z.string().nullable().optional(),
   resultDetails: z.string().nullable().optional(),
+  /** Set when a list left `resultDetails` out to stay small: read it from `GET .../tasks/:tid/result` */
+  hasDetails: z.boolean().optional(),
   completedBy: z.enum(['tool', 'auto']).nullable().optional(),
   progress: z.string().nullable().optional(),
   files: z.array(z.string()).default([]),

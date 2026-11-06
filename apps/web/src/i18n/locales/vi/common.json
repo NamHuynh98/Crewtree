@@ -707,5 +707,8 @@
     "weeklyModel": "Theo tuần · {{name}}",
     "resets": "đặt lại {{time}}",
     "refresh": "Làm mới hạn mức"
+  },
+  "list": {
+    "showMore": "Hiện thêm {{count}} · tổng {{total}}"
   }
 }

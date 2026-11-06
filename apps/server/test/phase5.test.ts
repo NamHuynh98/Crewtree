@@ -10,7 +10,7 @@ import { DEFAULT_PORT } from '@crewtree/shared';
 import { createServer } from '../src/index.js';
 import { createSessionCookie } from '../src/auth.js';
 import { getDb } from '../src/db/index.js';
-import { fileTouchesTable } from '../src/db/schema.js';
+import { fileTouchesTable, tasksTable } from '../src/db/schema.js';
 import { EventBus } from '../src/events/EventBus.js';
 import { SessionService } from '../src/sessions/SessionService.js';
 import { fileDiff, lineStats, listChanges } from '../src/files/SessionChanges.js';
@@ -130,7 +130,7 @@ describe('Phase 5 API', () => {
       payload: { tool: 'Bash', toolUseId: 't1', input: { command: 'npm test' } },
       ts: Date.now(),
     });
-    const row = (await get('/api/sessions')).json().find((s: any) => s.id === sessionId);
+    const row = (await get('/api/sessions')).json().items.find((s: any) => s.id === sessionId);
     expect(row).toMatchObject({ agentCount: 1, levels: 1 });
     expect(row.lastActiveAt).toBeGreaterThan(0);
 
@@ -146,6 +146,51 @@ describe('Phase 5 API', () => {
     const older = (await get(`/api/sessions/${sessionId}/events?before=${last}&limit=1`)).json();
     expect(older).toHaveLength(1);
     expect(older[0].id).toBe(all[all.length - 2].id);
+  });
+
+  it('pages and filters the sessions list on the server', async () => {
+    const tag = `Paged ${nanoid(6)}`;
+    const extra = [];
+    for (let i = 0; i < 3; i++)
+      extra.push((await sessions.createSession({ title: `${tag} ${i}`, cwd: repo })).session.id);
+    try {
+      const first = (await get(`/api/sessions?q=${encodeURIComponent(tag.toLowerCase())}&limit=2`)).json();
+      expect(first.total).toBe(3);
+      expect(first.items).toHaveLength(2);
+      expect(first.cwds).toContain(repo);
+      const rest = (await get(`/api/sessions?q=${encodeURIComponent(tag)}&limit=2&offset=2`)).json();
+      expect(rest.items).toHaveLength(1);
+      const ids = [...first.items, ...rest.items].map((s: any) => s.id);
+      expect(new Set(ids)).toEqual(new Set(extra));
+      expect((await get(`/api/sessions?q=${encodeURIComponent(tag)}&cwd=/nowhere`)).json().total).toBe(0);
+      expect((await get(`/api/sessions?q=${encodeURIComponent(tag)}&status=running`)).json().total).toBe(0);
+    } finally {
+      for (const id of extra) await sessions.deleteSession(id);
+    }
+  });
+
+  it('leaves long task details out of the session detail', async () => {
+    const taskId = nanoid();
+    getDb()
+      .insert(tasksTable)
+      .values({
+        id: taskId,
+        sessionId,
+        toAgentId: supervisorId,
+        title: 'Report',
+        instructions: 'Write it',
+        scope: '[]',
+        status: 'done',
+        resultSummary: 'short',
+        resultDetails: 'a long report',
+        createdAt: Date.now(),
+      })
+      .run();
+    const task = (await get(`/api/sessions/${sessionId}`)).json().tasks.find((x: any) => x.id === taskId);
+    expect(task).toMatchObject({ resultSummary: 'short', hasDetails: true });
+    expect(task.resultDetails).toBeUndefined();
+    const full = (await get(`/api/sessions/${sessionId}/tasks/${taskId}/result`)).json();
+    expect(full.resultDetails).toBe('a long report');
   });
 
   it('serves the lazy tree, changes, diffs and process counts', async () => {

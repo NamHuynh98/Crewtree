@@ -144,7 +144,7 @@ describe('shell data for the UI (UI-WIREFRAMES 0)', () => {
   });
 
   it('marks session activity for the status legend', async () => {
-    const sessions = (await get('/api/sessions')).json();
+    const sessions = (await get('/api/sessions')).json().items;
     for (const s of sessions) expect(['running', 'idle']).toContain(s.activity);
   });
 

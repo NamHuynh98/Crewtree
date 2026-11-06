@@ -612,6 +612,15 @@ function ChatTab({
 function TaskRow({ task, ws }: { task: Task; ws: Workspace }) {
   const { t } = useTranslation();
   const [full, setFull] = useState<string | null>(null);
+  const showFull = async () => {
+    if (task.resultDetails) return setFull(task.resultDetails);
+    try {
+      const fresh = await api<Task>(`/api/sessions/${task.sessionId}/tasks/${task.id}/result`);
+      setFull(fresh.resultDetails ?? '');
+    } catch (err: any) {
+      setFull(err.message);
+    }
+  };
   const from = task.fromAgentId ? ws.agents.find((a) => a.id === task.fromAgentId) : undefined;
   const end = task.endedAt ?? Date.now();
   return (
@@ -658,12 +667,8 @@ function TaskRow({ task, ws }: { task: Task; ws: Workspace }) {
             {t('tasks.cancel')}
           </button>
         )}
-        {task.resultDetails && !full && (
-          <button
-            type="button"
-            className="text-[11px] text-primary hover:underline"
-            onClick={() => setFull(task.resultDetails ?? '')}
-          >
+        {(task.resultDetails || task.hasDetails) && !full && (
+          <button type="button" className="text-[11px] text-primary hover:underline" onClick={() => void showFull()}>
             {t('drawer.showFull')}
           </button>
         )}
@@ -672,15 +677,34 @@ function TaskRow({ task, ws }: { task: Task; ws: Workspace }) {
   );
 }
 
+/** Newest first, a page at a time: a long session can hold hundreds of tasks per agent */
+const TASK_PAGE = 30;
+
 function TasksTab({ ws, agent }: { ws: Workspace; agent: SessionAgent }) {
   const { t } = useTranslation();
-  const mine = ws.tasks.filter((x) => x.toAgentId === agent.id).sort((a, b) => b.createdAt - a.createdAt);
+  const [shownCount, setShownCount] = useState(TASK_PAGE);
+  const mine = useMemo(
+    () => ws.tasks.filter((x) => x.toAgentId === agent.id).sort((a, b) => b.createdAt - a.createdAt),
+    [ws.tasks, agent.id]
+  );
   return (
     <ul className="flex-1 space-y-2 overflow-y-auto p-3">
       {mine.length === 0 && <li className="text-xs text-muted-foreground">{t('tasks.empty')}</li>}
-      {mine.map((x) => (
+      {mine.slice(0, shownCount).map((x) => (
         <TaskRow key={x.id} task={x} ws={ws} />
       ))}
+      {mine.length > shownCount && (
+        <li className="text-center">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-[11px]"
+            onClick={() => setShownCount((n) => n + TASK_PAGE)}
+          >
+            {t('list.showMore', { count: Math.min(TASK_PAGE, mine.length - shownCount), total: mine.length })}
+          </Button>
+        </li>
+      )}
     </ul>
   );
 }

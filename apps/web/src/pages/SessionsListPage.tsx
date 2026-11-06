@@ -2,7 +2,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ShieldAlert } from 'lucide-react';
 import type { Session, SessionAgent } from '@crewtree/shared';
 import { useShell } from '@/app/shell';
@@ -18,6 +18,23 @@ const NewSessionDialog = lazy(() =>
 );
 
 type SessionRow = Session & { activity?: 'running' | 'idle'; agentCount: number; levels: number; lastActiveAt: number };
+interface SessionPage {
+  items: SessionRow[];
+  total: number;
+  cwds: string[];
+}
+
+/** Rows per "Show more". The list grows from the top, so a refresh never skips or repeats a row */
+const PAGE = 50;
+
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return debounced;
+}
 
 function useRelativeTime() {
   const { i18n } = useTranslation();
@@ -54,21 +71,23 @@ export function SessionsListPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: sessions = [], error: loadError } = useQuery({
-    queryKey: ['sessions'],
-    queryFn: () => api<SessionRow[]>('/api/sessions'),
+  const q = useDebounced(query.trim(), 250);
+  const [limit, setLimit] = useState(PAGE);
+  useEffect(() => setLimit(PAGE), [q, status, projectFilter]);
+
+  const { data, error: loadError } = useQuery({
+    queryKey: ['sessions', 'list', { q, status, cwd: projectFilter, limit }],
+    queryFn: () =>
+      api<SessionPage>(`/api/sessions?${new URLSearchParams({ q, status, cwd: projectFilter, limit: String(limit) })}`),
+    placeholderData: keepPreviousData,
     refetchInterval: 10_000,
   });
   const authRequired = loadError instanceof ApiError && loadError.status === 401;
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['sessions'] });
 
-  const cwds = [...new Set(sessions.map((s) => s.cwd))];
-  const shown = sessions.filter(
-    (s) =>
-      (status === 'all' || (status === 'running' ? s.activity === 'running' : s.status === status)) &&
-      (projectFilter === 'all' || s.cwd === projectFilter) &&
-      s.title.toLowerCase().includes(query.toLowerCase())
-  );
+  const shown = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const cwds = data?.cwds ?? [];
 
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -168,7 +187,7 @@ export function SessionsListPage() {
         )}
         {error && <p className="text-xs text-red-600">{error}</p>}
 
-        {!authRequired && sessions.length === 0 ? (
+        {!authRequired && data && cwds.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card/40 p-10 text-center">
             <h3 className="text-sm font-semibold">{t('sessionsPage.emptyTitle')}</h3>
             <p className="mt-1 max-w-sm text-xs text-muted-foreground">{t('sessionsPage.emptyBody')}</p>
@@ -276,8 +295,15 @@ export function SessionsListPage() {
                 </span>
               </li>
             ))}
-            {shown.length === 0 && (
+            {data && shown.length === 0 && (
               <li className="p-4 text-center text-xs text-muted-foreground">{t('sessionsPage.noMatch')}</li>
+            )}
+            {total > shown.length && (
+              <li className="p-1.5 text-center">
+                <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setLimit((n) => n + PAGE)}>
+                  {t('list.showMore', { count: Math.min(PAGE, total - shown.length), total })}
+                </Button>
+              </li>
             )}
           </ul>
         )}

@@ -715,5 +715,8 @@
     "weeklyModel": "Weekly · {{name}}",
     "resets": "resets {{time}}",
     "refresh": "Refresh usage"
+  },
+  "list": {
+    "showMore": "Show {{count}} more · {{total}} in all"
   }
 }
