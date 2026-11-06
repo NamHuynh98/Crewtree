@@ -191,7 +191,6 @@
     "search": "Search models…",
     "inherit": "inherit",
     "inheritHint": "from parent / session",
-    "custom": "Custom model ID… (Enter)",
     "refresh": "Refresh models",
     "unavailable": "Model unavailable for this account",
     "fallback": "Account models unavailable; showing aliases."
@@ -665,8 +664,6 @@
     "updatedAt": "Updated {{time}}",
     "fallbackList": "fallback list",
     "refresh": "Refresh",
-    "customModels": "Custom model IDs",
-    "addCustom": "Add",
     "defaultModels": "Default models",
     "defaultModel": {
       "supervisor": "Delegating agents model",
@@ -697,11 +694,26 @@
     "version": "Version",
     "updates": "Updates",
     "checkUpdates": "Check for updates",
-    "checkUpdatesHint": "Once a day, from GitHub Releases. The app never updates itself; run `crewtree update`."
+    "checkUpdatesHint": "Once a day, from GitHub Releases. The app never updates itself; run `crewtree update`.",
+    "window": "Window",
+    "openIn": "Open Crewtree in",
+    "openInApp": "Its own app window",
+    "openInBrowser": "A browser tab",
+    "openInHint": "Used by the crewtree command. The app window needs Chrome, Edge, Brave or Chromium; otherwise a tab opens. To get a Dock / Start menu icon, install Crewtree from the browser menu (Install Crewtree)."
   },
   "update": {
     "available": "Crewtree v{{version}} is available (you have v{{current}})",
     "whatsNew": "What's new",
     "howTo": "How to update"
+  },
+  "usage": {
+    "title": "Plan usage",
+    "session": "5-hour session",
+    "weekly": "Weekly",
+    "weekly_opus": "Weekly · Opus",
+    "weekly_sonnet": "Weekly · Sonnet",
+    "weeklyModel": "Weekly · {{name}}",
+    "resets": "resets {{time}}",
+    "refresh": "Refresh usage"
   }
 }

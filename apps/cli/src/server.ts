@@ -2,9 +2,9 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import open from 'open';
 import { DEFAULT_PORT } from '@crewtree/shared';
 import { bundleRoot, files, serverEntry } from './layout.js';
+import { openUi } from './appWindow.js';
 import { ensureNative } from './native.js';
 import { CliError } from './ui.js';
 
@@ -140,8 +140,15 @@ export async function stopServer(timeoutMs = 15_000): Promise<boolean> {
   return true;
 }
 
-/** Opens the web UI signed in (one-time link), switching the project when given. */
-export async function openBrowser(project?: string, noOpen = false): Promise<string> {
+/**
+ * Opens the web UI signed in (one-time link), switching the project when given: in Crewtree's own app window
+ * (Settings → General → Window, or `--browser` for a tab this time).
+ */
+export async function openBrowser(
+  project?: string,
+  noOpen = false,
+  forceBrowser = false
+): Promise<{ url: string; openedIn?: 'app' | 'browser' | 'fallback' }> {
   const h = await health();
   const token = readToken();
   if (!h || !token) throw new CliError('The server is not running');
@@ -150,10 +157,11 @@ export async function openBrowser(project?: string, noOpen = false): Promise<str
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, project }),
   });
-  const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+  const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string; openIn?: 'app' | 'browser' };
   if (!res.ok || !body.url) throw new CliError(body.error ?? `Could not open the UI (${res.status})`);
-  if (!noOpen) await open(body.url);
-  return body.url;
+  if (noOpen) return { url: body.url };
+  const openedIn = await openUi(body.url, forceBrowser ? 'browser' : (body.openIn ?? 'app'));
+  return { url: body.url, openedIn };
 }
 
 /**

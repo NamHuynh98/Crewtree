@@ -339,8 +339,9 @@ Trường riêng khác:
 ## 7. Model
 
 - **ModelCatalogService:** gọi `supportedModels()` của Agent SDK để lấy toàn bộ model tài khoản dùng được (`value`, `displayName`, `description`). Cache TTL ~6 giờ, nút Refresh. API `GET /api/models` → `{ models, fetchedAt, source: "account" | "fallback" }`.
-- Fallback khi không lấy được: alias `opus`, `sonnet`, `haiku`, `inherit` + ô Custom model ID.
-- Settings → Models: xem danh sách, thêm custom model ID.
+- Fallback khi không lấy được: alias `opus`, `sonnet`, `haiku`, `inherit`.
+- Settings → Models: xem danh sách (đúng danh sách `/model` của Claude Code). Không có ô nhập model ID tuỳ ý: chỉ chọn được model tài khoản dùng được. Model cũ ghi trong file `.md` mà tài khoản không còn dùng được hiện cảnh báo vàng.
+- **Hạn mức gói** (sidebar): `UsageService` đọc dữ liệu `/usage` qua Agent SDK (không gửi prompt, không tốn token): cửa sổ 5 giờ, theo tuần, theo tuần từng model, % đã dùng và giờ đặt lại. Cache 2 phút, `GET /api/claude/usage[?refresh=1]`. API của SDK đang thử nghiệm: lỗi hay thiếu dữ liệu thì ẩn đồng hồ. Ẩn với API key, Bedrock, Vertex.
 - Ba nơi đặt model (nơi sau ghi đè nơi trước):
   1. Settings → Defaults: model mặc định cho node điều phối, node thực thi, AI Generate, fallback.
   2. Agent Editor: ghi vào `model:` của file `.md`; có effort/thinking nếu tài khoản hỗ trợ.
@@ -541,7 +542,7 @@ Thư mục `~/.crewtree/` (Windows: `%USERPROFILE%\.crewtree`):
 
 | Bảng | Cột chính |
 |---|---|
-| `app_settings` | key (PK), value (json), updated_at — `ui.language`, `ui.theme`, `ai.generatedContentLanguage`, `models.defaults`, `models.custom`, `limits.defaults` (gồm `maxConcurrentAgents` chung, `idleSuspendMinutes`, `eventsRetentionDays`), `update.check` |
+| `app_settings` | key (PK), value (json), updated_at — `ui.language`, `ui.theme`, `ai.generatedContentLanguage`, `models.defaults`, `limits.defaults` (gồm `maxConcurrentAgents` chung, `idleSuspendMinutes`, `eventsRetentionDays`), `update.check`, `launch.openIn` (`app` | `browser`) |
 | `resource_revisions` | id, kind (`agent/skill/command/memory/mcp`), scope (`crewtree/user/project`), path, content, created_at |
 | `projects` | id, path, last_opened_at |
 | `sessions` | id, project_id, title, cwd, supervisor_agent_id, status (`active/paused/completed/stopped/error`), settings json (limits, nhóm cấu hình Claude Code, checkpoint, idleSuspendMinutes), total_tokens, total_turns, created_at, updated_at |
@@ -614,7 +615,7 @@ Server có API chạy agent, Bash và ghi file, nên phải chặn mọi truy c�
 - Chỉ lắng nghe `127.0.0.1` (không `0.0.0.0`).
 - Kiểm tra header `Host` ∈ {`127.0.0.1:<port>`, `localhost:<port>`} → chặn DNS rebinding.
 - Kiểm tra `Origin` với mọi request thay đổi dữ liệu, SSE và khi mở WebSocket → chặn CSRF và trang web lạ.
-- **Token phiên:** lệnh `crewtree` mở trình duyệt với `/auth?t=<token dùng một lần, hết hạn 60s>` → server đổi thành cookie `HttpOnly; SameSite=Strict` (ký bằng `~/.crewtree/session.secret`). Mọi REST/WS/SSE đều cần cookie. Mở web trực tiếp mà không có cookie → trang hướng dẫn chạy `crewtree` để vào lại.
+- **Token phiên:** lệnh `crewtree` mở trình duyệt với `/auth?t=<token dùng một lần, hết hạn 60s>` → server đổi thành cookie `HttpOnly; SameSite=Strict` (ký bằng `~/.crewtree/session.secret`), sống 30 ngày (`Max-Age`, server cũng kiểm hạn) để cửa sổ app / PWA mở lại vẫn đăng nhập. Mọi REST/WS/SSE đều cần cookie. Mở web trực tiếp mà không có cookie → trang hướng dẫn chạy `crewtree` để vào lại.
 - HTTP MCP của CliDriver: token riêng mỗi agent, hết hiệu lực khi agent bị dispose.
 - `POST /api/shutdown` dùng `shutdown.token` của CLI, không dùng cookie.
 - Không bao giờ trả secret (env MCP, token) ra API ở dạng rõ.
@@ -668,7 +669,9 @@ git clone <repo> && cd crewtree && pnpm install && pnpm dev
 
 ### 16.3 Lệnh
 ```
-crewtree [path]                 khởi động server nếu chưa chạy (daemon), mở trình duyệt cho project = path | cwd
+crewtree [path] [--browser]     khởi động server nếu chưa chạy (daemon), mở UI cho project = path | cwd:
+                                cửa sổ app riêng (`--app=` của Chrome/Edge/Brave/Chromium/Vivaldi), không có thì
+                                tab trình duyệt; `--browser` hoặc Settings → General → Window để luôn mở tab
 crewtree stop                   dừng server (gọi POST /api/shutdown → dispose mọi runtime)
 crewtree status                 pid, port, uptime, số session đang chạy, version
 crewtree logs [-f]
@@ -734,7 +737,7 @@ Push tag `v*` → GitHub Actions `release.yml`:
 | `current` | symlink | junction hoặc file ghi version |
 | Dừng server | `POST /api/shutdown` (thống nhất mọi OS; Windows không có SIGTERM) | như bên trái |
 | Autostart | launchd | Task Scheduler |
-| Mở trình duyệt | thư viện `open` | thư viện `open` |
+| Mở UI | cửa sổ `--app=` qua `open -na <Chrome…>`, không có thì thư viện `open` | `chrome.exe`/`msedge.exe --app=`, không có thì `open` |
 | Ghi file `.md` | giữ nguyên kiểu xuống dòng sẵn có (LF/CRLF) | như bên trái |
 | Ghi atomic | rename | rename + retry có backoff (file có thể bị editor/antivirus giữ) |
 | Đường dẫn | chuẩn hoá qua `paths.ts`; API và mention luôn dùng `/` | thêm xử lý ổ đĩa, `\` |
@@ -909,7 +912,7 @@ Nguyên tắc code: không gọi lệnh shell trong server/CLI (dùng API Node, 
 | Điều khoản dùng tài khoản subscription qua công cụ tự viết | Chỉ dùng cá nhân, không phân phối; tự kiểm tra lại điều khoản |
 | Rate limit khi nhiều agent chạy song song | `maxConcurrentAgents`, trạng thái throttled, backoff, model nhẹ cho node thực thi |
 | Claude Code từ chối frontmatter lạ | File sidecar `.crewtree.json` |
-| `supportedModels()` không khả dụng | Fallback alias + custom ID |
+| `supportedModels()` không khả dụng | Fallback alias `opus`/`sonnet`/`haiku`/`inherit` |
 | Xung đột file khi làm chung thư mục | Prompt chia scope + FileLockManager + cảnh báo UI; Phase 8 có worktree tuỳ chọn |
 | Agent điều phối tự làm thay việc của con | Tool hạn chế cho node điều phối + hướng dẫn trong system prompt |
 | Event quá nhiều làm UI giật | Gộp text delta ~50ms, virtualized list, giới hạn bộ nhớ |

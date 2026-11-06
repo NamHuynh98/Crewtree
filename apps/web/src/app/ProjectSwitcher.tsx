@@ -36,14 +36,15 @@ export function ProjectSwitcher() {
   return (
     <DropdownMenuPrimitive.Root>
       <DropdownMenuPrimitive.Trigger
-        className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-md border border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="flex min-w-0 max-w-[min(32rem,100%)] items-center gap-1.5 text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-md border border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         title={current?.path}
       >
-        <span>{t('project')}:</span>
-        <span className="font-medium text-foreground font-mono">
-          {current ? shortenPath(current.path, current.homeDir) : '…'}
+        <span className="shrink-0">{t('project')}:</span>
+        {/* One line; a long path is cut at the start so the project folder stays visible */}
+        <span dir="rtl" className="min-w-0 truncate font-medium text-foreground font-mono">
+          <bdi dir="ltr">{current ? shortenPath(current.path, current.homeDir) : '…'}</bdi>
         </span>
-        <ChevronDown className="h-3 w-3" />
+        <ChevronDown className="h-3 w-3 shrink-0" />
       </DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal>
         <DropdownMenuPrimitive.Content
@@ -63,9 +64,9 @@ export function ProjectSwitcher() {
               onSelect={() => void open(p.path)}
               className="flex cursor-default select-none flex-col rounded-sm px-2 py-1.5 text-xs outline-none focus:bg-accent"
             >
-              <span className="font-medium">{p.name}</span>
-              <span className="font-mono text-[10px] text-muted-foreground">
-                {shortenPath(p.path, current?.homeDir)}
+              <span className="truncate font-medium">{p.name}</span>
+              <span dir="rtl" className="truncate text-left font-mono text-[10px] text-muted-foreground" title={p.path}>
+                <bdi dir="ltr">{shortenPath(p.path, current?.homeDir)}</bdi>
               </span>
             </DropdownMenuPrimitive.Item>
           ))}

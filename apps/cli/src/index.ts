@@ -38,9 +38,10 @@ program
   .description('Multi-agent orchestration on top of Claude Code, with a local web UI')
   .version(version)
   .argument('[path]', 'project folder to open (default: the current folder)')
-  .option('--no-open', 'start the server without opening the browser')
+  .option('--no-open', 'start the server without opening the UI')
+  .option('--browser', 'open the UI in a browser tab instead of its own app window')
   .action(
-    action(async (target: string | undefined, opts: { open: boolean }) => {
+    action(async (target: string | undefined, opts: { open: boolean; browser?: boolean }) => {
       const project = path.resolve(target ?? process.cwd());
       if (!fs.existsSync(project) || !fs.statSync(project).isDirectory())
         throw new CliError(`Folder not found: ${project}`);
@@ -50,9 +51,11 @@ program
         h = await startServer({ project });
         console.log(c.green(`✓ http://127.0.0.1:${h.port}`));
       }
-      const url = await openBrowser(project, !opts.open);
+      const { url, openedIn } = await openBrowser(project, !opts.open, opts.browser);
       ok(`Project: ${project}`);
       if (!opts.open) info(`Open: ${url}`);
+      if (openedIn === 'fallback')
+        info(c.dim('Opened in a browser tab: Crewtree gets its own window with Chrome, Edge, Brave or Chromium.'));
       await printUpdateNotice();
     })
   );

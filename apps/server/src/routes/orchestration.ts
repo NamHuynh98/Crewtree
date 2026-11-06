@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import fs from 'fs';
 import { composeMessage } from '../uploads/composeMessage.js';
-import { getAppSettings } from '../settings/appSettings.js';
 import { listChanges } from '../files/SessionChanges.js';
 import { childProcessStats } from '../runtime/processStats.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -11,6 +10,7 @@ import { EventBus } from '../events/EventBus.js';
 import { ApprovalService } from '../approvals/ApprovalService.js';
 import { ClaudeStatusService } from '../claude/ClaudeStatusService.js';
 import { ModelCatalogService } from '../models/ModelCatalogService.js';
+import { UsageService } from '../claude/UsageService.js';
 import { GitCheckpoint } from '../files/GitCheckpoint.js';
 import { getCurrentProjectPath } from '../projects/currentProject.js';
 
@@ -38,21 +38,16 @@ export function registerOrchestrationRoutes(fastify: FastifyInstance) {
     return { ...account, rateLimited: sessions.hasThrottledAgent() };
   });
 
+  // Plan usage windows of the account (Claude Code `/usage`), for the sidebar meter
+  fastify.get('/api/claude/usage', async (req) => {
+    const { refresh } = req.query as { refresh?: string };
+    return UsageService.getInstance().getUsage(refresh === '1');
+  });
+
   // ---------------------------------------------------------------- models & library
 
-  // Account models plus Settings → Models custom IDs (PLAN.md 7)
-  const withCustom = (catalog: Awaited<ReturnType<ModelCatalogService['getCatalog']>>) => {
-    const custom = getAppSettings().models.custom.filter((id) => !catalog.models.some((m) => m.value === id));
-    return {
-      ...catalog,
-      models: [
-        ...catalog.models,
-        ...custom.map((id) => ({ value: id, displayName: id, description: 'Custom model ID', custom: true })),
-      ],
-    };
-  };
-  fastify.get('/api/models', async () => withCustom(await ModelCatalogService.getInstance().getCatalog()));
-  fastify.post('/api/models/refresh', async () => withCustom(await ModelCatalogService.getInstance().getCatalog(true)));
+  fastify.get('/api/models', async () => ModelCatalogService.getInstance().getCatalog());
+  fastify.post('/api/models/refresh', async () => ModelCatalogService.getInstance().getCatalog(true));
 
   // ---------------------------------------------------------------- sessions
 

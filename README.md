@@ -67,13 +67,17 @@ The web UI draws the tree live, streams each agent's output, and sends your answ
 - **Your existing library.** Agents, skills, commands, memory (`CLAUDE.md`), MCP servers and plugins from
   `~/.claude` and the project's `.claude/` show up automatically. Create or edit them in the UI; the files stay
   plain Claude Code files, so the `claude` CLI uses them too.
-- **Pick the model per node.** Models come from what your account can use; set one per agent, per session or in
-  bulk, with a fallback model when the first is unavailable. The default Supervisor follows the model your
-  account recommends and moves to newer releases by itself.
+- **Pick the model per node.** Models come from what your account can use, the same list `/model` shows; set
+  one per agent, per session or in bulk, with a fallback model when the first is unavailable. The default
+  Supervisor follows the model your account recommends and moves to newer releases by itself.
 - **Cheap when idle, resumable after a crash.** Idle agents are suspended and resume with their context on the
   next message. Kill the server mid-turn, start it again, and the session continues.
-- **A local app that behaves like one.** One-line install, `crewtree update` with automatic database backup and
-  `crewtree rollback`, optional start at login, English and Vietnamese UI, light and dark theme.
+- **Your plan usage at a glance.** The sidebar shows the same windows as `/usage` in Claude Code (5-hour
+  session, weekly, per model) with the reset time, so you see a busy tree eating into your plan before it stops.
+- **A local app that behaves like one.** `crewtree` opens its own window (no tabs, no address bar) when Chrome,
+  Edge, Brave or Chromium is installed, and the UI installs as an app for a Dock / Start menu icon. One-line
+  install, `crewtree update` with automatic database backup and `crewtree rollback`, optional start at login,
+  English and Vietnamese UI, light and dark theme.
 
 ## Supported platforms
 
@@ -143,7 +147,8 @@ Then watch the tree grow, answer the questions agents send up, and approve what 
 From the terminal:
 
 ```
-crewtree [path]               start the server if needed and open the UI for that project (default: .)
+crewtree [path] [--browser]   start the server if needed and open the UI for that project (default: .)
+                              in its own window, or a browser tab with --browser
 crewtree stop | status        stop the server / pid, port, uptime, running agents, version
 crewtree logs [-f]            server log
 crewtree doctor               check Node, Claude Code, permissions, server, port, Git Bash (Windows)
@@ -156,7 +161,7 @@ crewtree uninstall [--purge]  remove Crewtree; your data in ~/.crewtree stays un
 ## Security and privacy
 
 - The server listens on `127.0.0.1` only and checks the `Host` and `Origin` of every request, so other sites in
-  your browser cannot talk to it. The UI signs in with a one-time link that `crewtree` opens for you.
+  your browser cannot talk to it. The UI signs in with a one-time link that `crewtree` opens for you; the sign-in lasts 30 days.
 - Crewtree has no account, no telemetry and no cloud backend. Your prompts go from Claude Code to Anthropic as
   they would in a terminal; everything else (sessions, tasks, events) stays in `~/.crewtree`.
 - Agents run with your Claude Code permission settings and hooks; anything they would ask you about in a

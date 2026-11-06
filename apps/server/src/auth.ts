@@ -43,6 +43,9 @@ export function verifyAndConsumeOneTimeToken(token: string): boolean {
   return true;
 }
 
+/** A UI sign-in lasts 30 days; `crewtree` signs in again with a fresh one-time link */
+export const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
 // Session cookie value signature
 export function createSessionCookie(): string {
   const secret = getSessionSecret();
@@ -56,6 +59,8 @@ export function verifySessionCookie(cookieValue?: string): boolean {
   const parts = cookieValue.split('.');
   if (parts.length !== 2) return false;
   const [timestamp, signature] = parts;
+  const issuedAt = Number(timestamp);
+  if (!Number.isFinite(issuedAt) || Date.now() - issuedAt > SESSION_MAX_AGE_MS) return false;
   const secret = getSessionSecret();
   const expectedSignature = crypto.createHmac('sha256', secret).update(timestamp).digest('hex');
   const actual = Buffer.from(signature);

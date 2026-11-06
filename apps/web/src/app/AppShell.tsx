@@ -27,6 +27,7 @@ import {
 import { api } from '@/lib/api';
 import { ThemeMenu, LanguageMenu } from '@/components/HeaderMenus';
 import { ClaudeStatus, type ClaudeStatusInfo } from '@/components/ClaudeStatus';
+import { UsageMeter } from '@/components/UsageMeter';
 import { ShellContext, type ProjectInfo } from './shell';
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { ApprovalInbox } from './ApprovalInbox';
@@ -212,16 +213,16 @@ export function AppShell() {
     >
       <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">
         <header className="h-12 border-b border-border px-4 flex items-center justify-between bg-card select-none">
-          <div className="flex items-center gap-4">
-            <NavLink to="/" className="flex items-center gap-2 font-semibold tracking-tight">
+          <div className="flex min-w-0 flex-1 items-center gap-4 pr-4">
+            <NavLink to="/" className="flex shrink-0 items-center gap-2 font-semibold tracking-tight">
               <img src="/logo.png" alt="" aria-hidden className="h-6 w-6" />
               <span className="text-base">{t('appName')}</span>
             </NavLink>
-            <div className="h-4 w-px bg-border" />
+            <div className="h-4 w-px shrink-0 bg-border" />
             <ProjectSwitcher />
           </div>
 
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex shrink-0 items-center gap-2 text-sm">
             <ApprovalInbox count={pendingApprovals} onChanged={refreshApprovals} />
             <ThemeMenu value={themeSetting} onChange={changeTheme} />
             <LanguageMenu value={(i18n.language as LanguageSetting) ?? 'en'} onChange={changeLanguage} />
@@ -299,6 +300,7 @@ export function AppShell() {
                 <Settings className="w-3.5 h-3.5 shrink-0" />
                 {!collapsed && <span>{t('settings')}</span>}
               </NavLink>
+              {serverOnline && claudeStatus?.login === 'logged_in' && <UsageMeter compact={collapsed} />}
               <ClaudeStatus status={claudeStatus} serverOnline={serverOnline} compact={collapsed} />
               <button
                 type="button"

@@ -514,8 +514,6 @@ Model  [ Claude Opus 5.5 (1M context)          ▾ ]   ↻
        │ ○ Claude Haiku 5.5       fast…           │
        │ ○ Claude Fable 5.1       …               │
        │ ○ inherit                from parent/session│
-       │ ─────────────────────────────────────────│
-       │ ✎ Custom model ID…                       │
        └──────────────────────────────────────────┘
 ```
 
@@ -693,7 +691,6 @@ Commands dùng cùng layout (không có cây file phụ).
 │  ✓ Claude Sonnet 5.5         claude-sonnet-5-5        balanced                           │
 │  ✓ Claude Haiku 5.5          claude-haiku-5-5         fast                               │
 │  ✓ Claude Fable 5.1          claude-fable-5-1                                            │
-│  + Custom model ID           [                     ]  [Add]                              │
 ```
 
 **Defaults:**

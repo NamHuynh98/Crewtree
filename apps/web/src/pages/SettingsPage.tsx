@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import type { AppSettings } from '@crewtree/shared';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -119,6 +119,21 @@ export function SettingsPage() {
                 </p>
               </section>
               <section className="space-y-3">
+                <div className={section}>{t('settingsPage.window')}</div>
+                <div className={row}>
+                  <span className={label}>{t('settingsPage.openIn')}</span>
+                  <select
+                    className={select}
+                    value={settings.launch.openIn}
+                    onChange={(e) => void patch({ launch: { openIn: e.target.value as 'app' | 'browser' } })}
+                  >
+                    <option value="app">{t('settingsPage.openInApp')}</option>
+                    <option value="browser">{t('settingsPage.openInBrowser')}</option>
+                  </select>
+                </div>
+                <p className="pl-[236px] text-[11px] text-muted-foreground">{t('settingsPage.openInHint')}</p>
+              </section>
+              <section className="space-y-3">
                 <div className={section}>{t('settingsPage.updates')}</div>
                 <label className={row}>
                   <span className={label}>{t('settingsPage.checkUpdates')}</span>
@@ -153,7 +168,7 @@ export function SettingsPage() {
               </section>
             </>
           ) : tab === 'models' ? (
-            <ModelsTab settings={settings} patch={patch} />
+            <ModelsTab />
           ) : tab === 'defaults' ? (
             <section className="space-y-3">
               <div className={section}>{t('settingsPage.defaultModels')}</div>
@@ -181,17 +196,11 @@ export function SettingsPage() {
   );
 }
 
-function ModelsTab({
-  settings,
-  patch,
-}: {
-  settings: AppSettings;
-  patch: (b: DeepPartial<AppSettings>) => Promise<void>;
-}) {
+/** Exactly the models Claude Code offers this account (`/model`); nothing typed by hand. */
+function ModelsTab() {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { data: catalog, isFetching } = useModelCatalog();
-  const [custom, setCustom] = useState('');
   const refresh = async () => {
     const next = await api('/api/models/refresh', { body: {} });
     queryClient.setQueryData(['models'], next);
@@ -224,44 +233,6 @@ function ModelsTab({
           </li>
         ))}
       </ul>
-      <div className="space-y-2">
-        <div className={section}>{t('settingsPage.customModels')}</div>
-        <ul className="space-y-1">
-          {settings.models.custom.map((id) => (
-            <li key={id} className="flex items-center gap-2 font-mono">
-              {id}
-              <button
-                type="button"
-                aria-label={t('actions.delete')}
-                onClick={() =>
-                  void patch({ models: { custom: settings.models.custom.filter((x) => x !== id) } as any })
-                }
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const id = custom.trim();
-            if (!id || settings.models.custom.includes(id)) return;
-            void patch({ models: { custom: [...settings.models.custom, id] } as any }).then(() => setCustom(''));
-          }}
-        >
-          <input
-            value={custom}
-            onChange={(e) => setCustom(e.target.value)}
-            placeholder="claude-…"
-            className="w-72 rounded-md border border-input bg-background px-2 py-1 font-mono"
-          />
-          <Button size="sm" variant="outline" className="h-7 text-[11px]" disabled={!custom.trim()}>
-            {t('settingsPage.addCustom')}
-          </Button>
-        </form>
-      </div>
     </section>
   );
 }
@@ -352,10 +323,13 @@ function AccountTab({ homeDir, projectPath }: { homeDir?: string; projectPath?: 
   const { data } = useQuery({ queryKey: ['account'], queryFn: () => api<Account>('/api/account') });
   if (!data) return <p className="text-muted-foreground">{t('composer.loading')}</p>;
   const loggedIn = data.claude.login === 'logged_in';
-  const line = (k: string, v: React.ReactNode) => (
-    <div className={row}>
+  // One line per value; a long path is cut at the start (like the header) and shown whole on hover
+  const line = (k: string, v: string) => (
+    <div className="flex items-center gap-3">
       <span className={label}>{k}</span>
-      <span className="font-mono">{v}</span>
+      <span dir="rtl" className="min-w-0 truncate text-left font-mono" title={v}>
+        <bdi dir="ltr">{v}</bdi>
+      </span>
     </div>
   );
   return (

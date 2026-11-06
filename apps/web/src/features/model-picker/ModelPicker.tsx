@@ -12,7 +12,7 @@ export function useModelCatalog() {
   return useQuery({ queryKey: ['models'], queryFn: () => api<ModelCatalog>('/api/models'), staleTime: 5 * 60_000 });
 }
 
-/** Model picker of UI-WIREFRAMES 8: account models, inherit, custom model ID. */
+/** Model picker of UI-WIREFRAMES 8: the models the logged-in account can use, plus inherit. */
 export function ModelPicker({
   value,
   onChange,
@@ -28,7 +28,6 @@ export function ModelPicker({
   const queryClient = useQueryClient();
   const { data: catalog } = useModelCatalog();
   const [search, setSearch] = useState('');
-  const [custom, setCustom] = useState('');
   const available = modelAvailable(value, catalog);
   const models = useMemo(
     () =>
@@ -102,23 +101,6 @@ export function ModelPicker({
                 </Popover.Item>
               )}
             </div>
-            <Popover.Separator className="my-1 h-px bg-border" />
-            <form
-              className="flex items-center gap-1.5 p-1"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (custom.trim()) onChange(custom.trim());
-              }}
-            >
-              <input
-                value={custom}
-                onChange={(e) => setCustom(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
-                placeholder={t('models.custom')}
-                className="flex-1 rounded border border-input bg-background px-2 py-1 font-mono text-[11px]"
-                aria-label={t('models.custom')}
-              />
-            </form>
             {catalog?.source === 'fallback' && (
               <p className="px-2 pb-1 text-[10px] text-muted-foreground">{t('models.fallback')}</p>
             )}

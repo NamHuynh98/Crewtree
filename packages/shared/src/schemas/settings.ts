@@ -45,7 +45,6 @@ export const AppSettingsSchema = z.object({
           generate: 'haiku',
           fallback: 'sonnet',
         }),
-      custom: z.array(z.string()).default([]),
     })
     .default({
       defaults: {
@@ -54,7 +53,6 @@ export const AppSettingsSchema = z.object({
         generate: 'haiku',
         fallback: 'sonnet',
       },
-      custom: [],
     }),
   limits: z
     .object({
@@ -91,6 +89,12 @@ export const AppSettingsSchema = z.object({
       check: z.boolean().default(true),
     })
     .default({ check: true }),
+  // Where `crewtree` opens the UI: its own app window (Chrome / Edge / Brave / Chromium) or a browser tab
+  launch: z
+    .object({
+      openIn: z.enum(['app', 'browser']).default('app'),
+    })
+    .default({ openIn: 'app' }),
 });
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>;

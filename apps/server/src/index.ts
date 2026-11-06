@@ -18,6 +18,7 @@ import {
   createSessionCookie,
   verifySessionCookie,
   getSessionSecret,
+  SESSION_MAX_AGE_MS,
 } from './auth.js';
 import { DEFAULT_PORT, AppSettingsSchema } from '@crewtree/shared';
 import { SessionService } from './sessions/SessionService.js';
@@ -220,11 +221,13 @@ export async function createServer() {
       return;
     }
 
+    // Kept across browser restarts so the installed app (PWA) opened from the Dock / Start menu stays signed in
     reply.setCookie(SESSION_COOKIE, createSessionCookie(), {
       path: '/',
       httpOnly: true,
       sameSite: 'strict',
       secure: false, // local 127.0.0.1
+      maxAge: SESSION_MAX_AGE_MS / 1000,
     });
 
     reply.redirect('/');
@@ -267,7 +270,10 @@ export async function createServer() {
       reply.code(400).send({ error: err.message });
       return;
     }
-    return { url: `http://${HOST}:${activePort}/auth?t=${generateOneTimeToken()}` };
+    return {
+      url: `http://${HOST}:${activePort}/auth?t=${generateOneTimeToken()}`,
+      openIn: getAppSettings().launch.openIn,
+    };
   });
 
   // Settings → Limits "Clean up now"

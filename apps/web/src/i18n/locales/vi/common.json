@@ -191,7 +191,6 @@
     "search": "Tìm model…",
     "inherit": "inherit",
     "inheritHint": "theo cha / session",
-    "custom": "Model ID tuỳ chỉnh… (Enter)",
     "refresh": "Làm mới danh sách model",
     "unavailable": "Tài khoản không dùng được model này",
     "fallback": "Không lấy được model của tài khoản; đang hiện alias."
@@ -657,8 +656,6 @@
     "updatedAt": "Cập nhật {{time}}",
     "fallbackList": "danh sách dự phòng",
     "refresh": "Làm mới",
-    "customModels": "Model ID tuỳ chỉnh",
-    "addCustom": "Thêm",
     "defaultModels": "Model mặc định",
     "defaultModel": {
       "supervisor": "Model cho agent giao việc",
@@ -689,11 +686,26 @@
     "version": "Phiên bản",
     "updates": "Cập nhật",
     "checkUpdates": "Kiểm tra bản mới",
-    "checkUpdatesHint": "Mỗi ngày một lần, từ GitHub Releases. Ứng dụng không tự cập nhật; hãy chạy `crewtree update`."
+    "checkUpdatesHint": "Mỗi ngày một lần, từ GitHub Releases. Ứng dụng không tự cập nhật; hãy chạy `crewtree update`.",
+    "window": "Cửa sổ",
+    "openIn": "Mở Crewtree trong",
+    "openInApp": "Cửa sổ app riêng",
+    "openInBrowser": "Tab trình duyệt",
+    "openInHint": "Áp dụng cho lệnh crewtree. Cửa sổ app cần Chrome, Edge, Brave hoặc Chromium; nếu không có sẽ mở tab. Muốn có icon trên Dock / Start menu, cài Crewtree từ menu trình duyệt (Install Crewtree)."
   },
   "update": {
     "available": "Đã có Crewtree v{{version}} (bạn đang dùng v{{current}})",
     "whatsNew": "Có gì mới",
     "howTo": "Cách cập nhật"
+  },
+  "usage": {
+    "title": "Hạn mức gói",
+    "session": "Phiên 5 giờ",
+    "weekly": "Theo tuần",
+    "weekly_opus": "Theo tuần · Opus",
+    "weekly_sonnet": "Theo tuần · Sonnet",
+    "weeklyModel": "Theo tuần · {{name}}",
+    "resets": "đặt lại {{time}}",
+    "refresh": "Làm mới hạn mức"
   }
 }
