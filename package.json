@@ -1,6 +1,6 @@
 {
   "name": "crewtree-monorepo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Multi-agent orchestration system on top of Claude Code with a local web UI",
   "license": "Apache-2.0",
