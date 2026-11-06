@@ -177,7 +177,7 @@ Report a vulnerability as described in `SECURITY.md`.
   through edit tools, but a change made with a shell command is detected after it happens, not before.
 - **Claude Code only, for now.** The runtime layer is ready for other CLIs (OpenCode, Codex CLI, Gemini CLI),
   but they are not implemented yet.
-- **Young software.** v0.1.0 is the first release. The design documents in `docs/` are written in Vietnamese.
+- **Young software.** Crewtree is at its first releases (v0.1.x). The design documents in `docs/` are written in Vietnamese.
 
 ## Architecture
 
