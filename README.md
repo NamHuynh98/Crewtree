@@ -16,6 +16,14 @@
 </p>
 
 <p align="center">
+  <a href="https://southern.pro.vn/tools/crewtree"><b>Website</b></a> ·
+  <a href="https://southern.pro.vn/tools/crewtree/install">Install guide</a> ·
+  <a href="https://southern.pro.vn/tools/crewtree/docs">Docs</a> ·
+  <a href="https://southern.pro.vn/tools/crewtree/faq">FAQ</a>
+  <br /><sub>English and Tiếng Việt</sub>
+</p>
+
+<p align="center">
   <img src="docs/assets/crewtree-demo.gif" alt="One message to the Supervisor: it plans, delegates to four agents, one of them spawns two more, an edit waits for approval, and the result comes back with every changed file" width="100%" />
 </p>
 
@@ -122,7 +130,9 @@ under your settings, permissions and hooks.
 
 ## Quick start
 
-You need **Node 22+** and **Claude Code**, installed and logged in (run `claude` once).
+You need **Node 22+** and **Claude Code**, installed and logged in (run `claude` once). For a step-by-step
+version with screenshots, see the [install guide](https://southern.pro.vn/tools/crewtree/install) and
+[your first session](https://southern.pro.vn/tools/crewtree/docs/quick-start).
 
 ### macOS and Linux
 
@@ -217,6 +227,7 @@ everything the UI shows.
 
 | Document | What is in it |
 |---|---|
+| [Website and docs](https://southern.pro.vn/tools/crewtree/docs) | The full user guide in English and Vietnamese: first session, agent tree, chat, approvals, agents, limits, CLI, troubleshooting |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to build, test and send changes (DCO sign-off) |
 | [`SECURITY.md`](SECURITY.md) | Reporting vulnerabilities, verifying releases |
 | [`TRADEMARKS.md`](TRADEMARKS.md) | Use of the Crewtree name and logo |
