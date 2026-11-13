@@ -31,3 +31,10 @@ export async function waitFor(check: () => boolean, ms = 5000, label = 'conditio
 }
 
 export const parse = (text: string) => JSON.parse(text);
+
+/** The task ID from a "[Crewtree task …]" header (the fenced child tools must name it). */
+export function taskIdIn(content: string): string {
+  const id = /\[Crewtree task ([^\]\s]+)\]/.exec(content)?.[1];
+  if (!id) throw new Error(`No task header in: ${content.slice(0, 80)}`);
+  return id;
+}

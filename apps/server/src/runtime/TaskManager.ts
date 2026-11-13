@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { nanoid } from 'nanoid';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { Session, SessionAgent, SessionStatus, Task, TaskStatus } from '@crewtree/shared';
 import { getDb } from '../db/index.js';
 import { messagesTable, tasksTable } from '../db/schema.js';
@@ -11,10 +11,11 @@ import { scopesOverlap } from '../files/scope.js';
 import { ApprovalService } from '../approvals/ApprovalService.js';
 import type { AgentRuntime, TurnUsage } from './AgentRuntime.js';
 import {
-  NUDGE_MESSAGE,
   answerMessage,
   childFinishedNotice,
   childQuestionNotice,
+  closedTaskNotice,
+  nudgeMessage,
   parentMessage,
   taskMessage,
 } from './prompts.js';
@@ -99,6 +100,8 @@ export class TaskManager {
   /** Results/questions the parent already received through wait_for_tasks or get_task_result */
   private seenByParent = new Set<string>();
   private interventions = new Map<string, Array<{ agent: string; message: string }>>();
+  /** Closed tasks whose agent was already told (closedTaskNotice) */
+  private closedNoticed = new Set<string>();
   private locks = new Map<string, Promise<unknown>>();
   private eventBus = EventBus.getInstance();
 
@@ -223,7 +226,7 @@ export class TaskManager {
           items.map((i) => i.messageId),
           agent.sessionId
         );
-        this.send(runtime, items.map((i) => i.text).join('\n\n'));
+        this.send(runtime, this.withClosedTaskNotice(runtime, items.map((i) => i.text).join('\n\n')));
         return;
       }
 
@@ -267,21 +270,57 @@ export class TaskManager {
           console.warn('[TaskManager] Git checkpoint failed:', err);
         }
       }
-      this.send(runtime, task.instructions, { newTask: true });
+      this.send(runtime, this.withClosedTaskNotice(runtime, task.instructions, started.id), { newTask: true });
       return;
     }
-    this.send(
-      runtime,
-      taskMessage({
-        id: started.id,
-        title: started.title,
-        instructions: started.instructions,
-        scope: started.scope,
-        files: started.files,
-        parentName: this.agentName(started.fromAgentId),
-      }),
-      { newTask: true }
+    const message = taskMessage({
+      id: started.id,
+      title: started.title,
+      instructions: started.instructions,
+      scope: started.scope,
+      files: started.files,
+      parentName: this.agentName(started.fromAgentId),
+    });
+    this.send(runtime, this.withClosedTaskNotice(runtime, message, started.id), { newTask: true });
+  }
+
+  /**
+   * Prepends closedTaskNotice when the agent's last task was closed without it (interrupted by a server
+   * restart, or cancelled): the agent resumes with that task in its context and must not carry on with it.
+   * Derived from the database, so it survives any number of restarts before the agent is woken.
+   */
+  private withClosedTaskNotice(runtime: AgentRuntime, text: string, startingTaskId?: string): string {
+    const agentId = runtime.sessionAgent.id;
+    const previous = getDb()
+      .select()
+      .from(tasksTable)
+      .where(and(eq(tasksTable.toAgentId, agentId), isNotNull(tasksTable.startedAt)))
+      .orderBy(desc(tasksTable.startedAt))
+      .limit(2)
+      .all()
+      .map(rowToTask)
+      .find((t) => t.id !== startingTaskId);
+    if (!previous || (previous.status !== 'interrupted' && previous.status !== 'cancelled')) return text;
+    if (this.closedNoticed.has(previous.id)) return text;
+    this.closedNoticed.add(previous.id);
+
+    const subtasks = this.listTasks(previous.sessionId)
+      .filter((t) => t.parentTaskId === previous.id && (t.status === 'interrupted' || t.status === 'cancelled'))
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        summary: t.resultSummary,
+        agent: this.agentName(t.toAgentId),
+        progress: t.progress,
+      }));
+    // A fresh context has nothing to carry on with; only its subtasks would still be news
+    if (startingTaskId && runtime.freshContextPerTask && !subtasks.length) return text;
+    const notice = closedTaskNotice(
+      { id: previous.id, title: previous.title, status: previous.status, summary: previous.resultSummary },
+      subtasks
     );
+    return `${notice}\n\n${text}`;
   }
 
   // ---------------------------------------------------------------- user input
@@ -397,7 +436,7 @@ export class TaskManager {
       }
       if (!this.nudged.has(task.id)) {
         this.nudged.add(task.id);
-        this.pushInbox(agentId, { kind: 'nudge', text: NUDGE_MESSAGE }, true);
+        this.pushInbox(agentId, { kind: 'nudge', text: nudgeMessage(task.id) }, true);
       } else {
         this.finish(task, 'done', { summary: info.lastText || '(no summary)', completedBy: 'auto' });
       }
@@ -464,9 +503,29 @@ export class TaskManager {
 
   // ---------------------------------------------------------------- tools for every agent
 
-  public completeTask(agentId: string, args: { summary: string; details?: string; files?: string[] }): string {
-    const task = this.currentTask(agentId);
-    if (!task) throw new Error('You have no active task. Reply normally instead.');
+  /**
+   * The task a child tool call is about (fencing): it must be the caller's current task, named by ID.
+   * A call from an old turn or a restarted process names a closed task and is rejected, so it can never
+   * complete or update the task the agent has now. Only the Supervisor's root request (no task header)
+   * may omit the ID.
+   */
+  private taskForCall(agentId: string, taskId: string | undefined, tool: string): Task {
+    const current = this.currentTask(agentId);
+    if (current && (taskId ? current.id === taskId : current.isRoot)) return current;
+    const now = current
+      ? `Your current task is ${current.id} "${current.title}".`
+      : 'You have no active task; reply normally instead.';
+    if (!taskId) throw new Error(`${tool} needs the taskId from the "[Crewtree task …]" header. ${now}`);
+    const named = this.getTask(taskId);
+    if (!named || named.toAgentId !== agentId) throw new Error(`Task ${taskId} is not assigned to you. ${now}`);
+    throw new Error(`Task ${taskId} is ${named.status} and closed: do not continue it or report on it. ${now}`);
+  }
+
+  public completeTask(
+    agentId: string,
+    args: { taskId?: string; summary: string; details?: string; files?: string[] }
+  ): string {
+    const task = this.taskForCall(agentId, args.taskId, 'complete_task');
     const details = [args.details, args.files?.length ? `Files: ${args.files.join(', ')}` : undefined]
       .filter(Boolean)
       .join('\n\n');
@@ -478,9 +537,8 @@ export class TaskManager {
     return `Task ${task.id} completed.${warning} End your turn now.`;
   }
 
-  public askParent(agentId: string, args: { question: string }): string {
-    const task = this.currentTask(agentId);
-    if (!task) throw new Error('You have no active task. Ask in your reply instead.');
+  public askParent(agentId: string, args: { taskId?: string; question: string }): string {
+    const task = this.taskForCall(agentId, args.taskId, 'ask_parent');
     const updated = this.updateTask(task.id, { status: 'needs_input', question: args.question, answer: null });
     this.eventBus.emitEvent({
       sessionId: task.sessionId,
@@ -498,10 +556,10 @@ export class TaskManager {
     return `Question sent to ${this.agentName(task.fromAgentId)}. End your turn now; the answer will arrive as your next message.`;
   }
 
-  public reportProgress(agentId: string, args: { text: string }): string {
-    const task = this.currentTask(agentId);
-    if (task) this.updateTask(task.id, { progress: args.text });
-    return 'Progress reported.';
+  public reportProgress(agentId: string, args: { taskId?: string; text: string }): string {
+    const task = this.taskForCall(agentId, args.taskId, 'report_progress');
+    this.updateTask(task.id, { progress: args.text });
+    return `Progress reported for task ${task.id}.`;
   }
 
   /** Answer to an ask_parent question, from the parent agent or (root task) the user. */
@@ -839,13 +897,13 @@ export class TaskManager {
       content: [{ type: 'text' as const, text: typeof value === 'string' ? value : json(value) }],
     });
     return {
-      report_progress: async (args: { text: string }, ctx: { sessionAgentId: string }) =>
+      report_progress: async (args: { taskId?: string; text: string }, ctx: { sessionAgentId: string }) =>
         ok(this.reportProgress(ctx.sessionAgentId, args)),
       complete_task: async (
-        args: { summary: string; details?: string; files?: string[] },
+        args: { taskId?: string; summary: string; details?: string; files?: string[] },
         ctx: { sessionAgentId: string }
       ) => ok(this.completeTask(ctx.sessionAgentId, args)),
-      ask_parent: async (args: { question: string }, ctx: { sessionAgentId: string }) =>
+      ask_parent: async (args: { taskId?: string; question: string }, ctx: { sessionAgentId: string }) =>
         ok(this.askParent(ctx.sessionAgentId, args)),
       list_agents: async (_args: unknown, ctx: { sessionAgentId: string }) => ok(this.listAgents(ctx.sessionAgentId)),
       spawn_agent: async (args: { agentName: string; alias?: string }, ctx: { sessionAgentId: string }) =>

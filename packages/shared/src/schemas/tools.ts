@@ -50,12 +50,25 @@ export const CancelTaskInputSchema = z.object({
 });
 export type CancelTaskInput = z.infer<typeof CancelTaskInputSchema>;
 
+/**
+ * The task a child tool call is about. The server rejects it unless it is the caller's current task, so a
+ * call from an old turn or a restarted process cannot close or update a newer task. Optional only for the
+ * Supervisor's root request, which has no task header.
+ */
+const OwnTaskIdSchema = z
+  .string()
+  .min(1)
+  .optional()
+  .describe('ID of the task this call is about, from the "[Crewtree task …]" header. Required for delegated tasks.');
+
 export const ReportProgressInputSchema = z.object({
+  taskId: OwnTaskIdSchema,
   text: z.string().min(1),
 });
 export type ReportProgressInput = z.infer<typeof ReportProgressInputSchema>;
 
 export const CompleteTaskInputSchema = z.object({
+  taskId: OwnTaskIdSchema,
   summary: z.string().min(1),
   details: z.string().optional(),
   files: z.array(z.string()).optional(),
@@ -63,6 +76,7 @@ export const CompleteTaskInputSchema = z.object({
 export type CompleteTaskInput = z.infer<typeof CompleteTaskInputSchema>;
 
 export const AskParentInputSchema = z.object({
+  taskId: OwnTaskIdSchema,
   question: z.string().min(1),
 });
 export type AskParentInput = z.infer<typeof AskParentInputSchema>;

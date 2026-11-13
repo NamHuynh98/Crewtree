@@ -10,7 +10,7 @@ import { ApprovalService } from '../src/approvals/ApprovalService.js';
 import { getDb } from '../src/db/index.js';
 import { fileTouchesTable } from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
-import { parse, recordEvents, waitFor, writeAgent } from './helpers/tree.js';
+import { parse, recordEvents, taskIdIn, waitFor, writeAgent } from './helpers/tree.js';
 
 /**
  * PLAN.md 4.4 / 18: three-level tree on FakeDriver, no tokens.
@@ -64,19 +64,23 @@ const scripts: Record<string, FakeScenario> = {
       await api.text('Report: research, analysis and implementation are done.');
     })(),
 
-  researcher: (_c, _s, api) =>
+  researcher: (content, _s, api) =>
     (async () => {
       await api.text('Researching…');
-      await api.callTool('complete_task', { summary: 'JWT with refresh tokens' });
+      await api.callTool('complete_task', { taskId: taskIdIn(content), summary: 'JWT with refresh tokens' });
     })(),
 
   analyst: (content, _s, api) =>
     (async () => {
       if (content.startsWith('[Crewtree task')) {
-        await api.callTool('ask_parent', { question: 'Which database?' });
+        analystTask = taskIdIn(content);
+        await api.callTool('ask_parent', { taskId: analystTask, question: 'Which database?' });
         return;
       }
-      await api.callTool('complete_task', { summary: `Analysis done: ${content.includes('SQLite') ? 'SQLite' : '?'}` });
+      await api.callTool('complete_task', {
+        taskId: analystTask,
+        summary: `Analysis done: ${content.includes('SQLite') ? 'SQLite' : '?'}`,
+      });
     })(),
 
   'lead-coder': (content, _s, api) =>
@@ -120,7 +124,10 @@ const scripts: Record<string, FakeScenario> = {
         );
         if (!r.still_running.length && !r.questions.length) break;
       }
-      await api.callTool('complete_task', { summary: 'Login page and auth API implemented' });
+      await api.callTool('complete_task', {
+        taskId: taskIdIn(content),
+        summary: 'Login page and auth API implemented',
+      });
     })(),
 
   implementer: (content, _s, api) =>
@@ -129,10 +136,11 @@ const scripts: Record<string, FakeScenario> = {
       const file = content.includes('Auth API') ? 'src/auth/service.ts' : 'src/pages/Login.tsx';
       await api.useTool('Edit', { file_path: file, old_string: 'a', new_string: 'b' });
       await api.useTool('Edit', { file_path: file, old_string: 'b', new_string: 'c' });
-      await api.callTool('complete_task', { summary: `Edited ${file}`, files: [file] });
+      await api.callTool('complete_task', { taskId: taskIdIn(content), summary: `Edited ${file}`, files: [file] });
     })(),
 };
 const leadNotes: { spawnDenied?: string; overlap?: string } = {};
+let analystTask = '';
 
 const sessions = SessionService.getInstance();
 let events: AgentEvent[] = [];
