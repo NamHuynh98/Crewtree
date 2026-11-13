@@ -12,6 +12,7 @@
  * HTTP MCP endpoint `/mcp/:sessionAgentId` (PLAN.md 3.2), which lands with Phase 2.
  */
 import { spawn, ChildProcess } from 'child_process';
+import { trackAgentProcess } from '../agentProcesses.js';
 import { AgentDriver, DriverCapabilities, DriverOptions } from '../AgentDriver.js';
 import { RuntimeType } from '@crewtree/shared';
 import { createInterface } from 'readline';
@@ -75,6 +76,7 @@ export class CliDriver implements AgentDriver {
       shell: false,
     });
     this.proc = proc;
+    trackAgentProcess(proc, 'claude', options.sessionAgentId);
 
     const rl = createInterface({ input: proc.stdout! });
     rl.on('line', (line) => {

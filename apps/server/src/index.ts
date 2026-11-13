@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb, closeDb } from './db/index.js';
 import { acquireInstanceLock, releaseInstanceLock } from './instanceLock.js';
+import { reapOrphanedAgentProcesses, startWatchdog } from './runtime/agentProcesses.js';
 import { appSettingsTable } from './db/schema.js';
 import { ensureDirectories, getClaudeDir, getConfigPath, getCrewtreeDir, getShutdownTokenPath } from './paths.js';
 import { cleanupEvents, scheduleCleanup, stopCleanup } from './settings/maintenance.js';
@@ -416,6 +417,10 @@ async function start() {
     console.log(`Crewtree is already running on this data folder (pid ${lock.pid})`);
     process.exit(0);
   }
+  // A crashed server's agents may still run tools: stop them before the database is reconciled. Then the
+  // watchdog does it for this server the moment it dies, instead of at the next start.
+  await reapOrphanedAgentProcesses({ assumeDead: true });
+  startWatchdog();
   let app: Awaited<ReturnType<typeof createServer>>;
   try {
     app = await createServer();

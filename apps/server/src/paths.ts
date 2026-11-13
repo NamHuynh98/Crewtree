@@ -48,6 +48,11 @@ export function getPidPath(): string {
   return path.join(getCrewtreeDir(), 'crewtree.pid');
 }
 
+/** Agent processes per server (`<server pid>.json`), stopped if that server dies (runtime/agentProcesses.ts) */
+export function getAgentProcessesDir(): string {
+  return path.join(getCrewtreeDir(), 'agent-processes');
+}
+
 export function getShutdownTokenPath(): string {
   return path.join(getCrewtreeDir(), 'shutdown.token');
 }

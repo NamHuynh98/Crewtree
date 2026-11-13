@@ -3,6 +3,7 @@ import { query, Query, type Options, type SDKUserMessage } from '@anthropic-ai/c
 import { AgentDriver, DriverCapabilities, DriverOptions, DriverToolHooks } from '../AgentDriver.js';
 import { RuntimeType } from '@crewtree/shared';
 import { toUserContent } from '../../uploads/composeMessage.js';
+import { spawnTrackedClaude } from '../agentProcesses.js';
 
 export class AsyncQueue<T> implements AsyncIterable<T> {
   private queue: T[] = [];
@@ -149,6 +150,8 @@ export class SdkDriver implements AgentDriver {
       resume: options.resumeSessionId,
       includePartialMessages: true,
       abortController: this.abortController,
+      // Recorded so the next server can stop it if this one crashes (agentProcesses.ts)
+      spawnClaudeCodeProcess: spawnTrackedClaude(options.sessionAgentId),
       canUseTool: async (toolName, input) => {
         if (!options.canUseTool) return { behavior: 'allow', updatedInput: input };
         const res = await options.canUseTool(toolName, input);

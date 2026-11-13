@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { DEFAULT_PORT } from '@crewtree/shared';
-import { bundleRoot, files, serverEntry } from './layout.js';
+import { bundleRoot, crewtreeDir, files, serverEntry } from './layout.js';
 import { openUi } from './appWindow.js';
 import { ensureNative } from './native.js';
 import { CliError } from './ui.js';
@@ -72,6 +72,21 @@ export async function health(timeoutMs = 2000): Promise<Health | null> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Stops agent processes that a crashed server left running (its watchdog normally does it the moment the
+ * server dies; this covers the watchdog dying with it). Runs the server's own `watchdog --reap`, which only
+ * touches the lists of servers whose process is gone.
+ */
+export async function reapLeftovers(root?: string): Promise<void> {
+  const script = path.join(path.dirname(serverEntry(root)), 'runtime', 'watchdog.js');
+  if (!fs.existsSync(script) || !fs.existsSync(path.join(crewtreeDir(), 'agent-processes'))) return;
+  await new Promise<void>((resolve) => {
+    const child = spawn(process.execPath, [script, '--reap'], { stdio: 'inherit', windowsHide: true });
+    child.once('exit', () => resolve());
+    child.once('error', () => resolve());
+  });
+}
+
 /** Starts the server as a background process; logs go to ~/.crewtree/logs/server.log. */
 export async function startServer(opts: { project?: string; root?: string } = {}): Promise<Health> {
   const entry = serverEntry(opts.root);
@@ -110,7 +125,10 @@ export async function startServer(opts: { project?: string; root?: string } = {}
 
 export async function stopServer(timeoutMs = 15_000): Promise<boolean> {
   const h = await health();
-  if (!h) return false;
+  if (!h) {
+    await reapLeftovers();
+    return false;
+  }
   const pid = h.pid;
   const token = readToken();
   if (!token)
