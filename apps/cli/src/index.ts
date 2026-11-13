@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { Command } from 'commander';
 import { cliVersion, files } from './layout.js';
-import { health, openBrowser, readConfig, serveForeground, startServer, stopServer } from './server.js';
+import { health, openBrowser, readConfig, reapLeftovers, serveForeground, startServer, stopServer } from './server.js';
 import { describeInstall, printUpdateNotice, rollback, update } from './update.js';
 import { autostart, doctor, uninstall } from './system.js';
 import { c, CliError, fail, info, ok, warn } from './ui.js';
@@ -77,6 +77,7 @@ program
     action(async () => {
       const h = await health();
       if (!h) {
+        await reapLeftovers();
         info(`Server is not running (last port: ${readConfig().port})`);
         return 3;
       }
