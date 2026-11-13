@@ -14,9 +14,11 @@ export const DELEGATION_RULES = `You can delegate. Rules:
 /** A.3 — static part for agents that receive tasks from a parent */
 export const TASK_PROTOCOL = `You are part of a Crewtree session. Work arrives as messages that start with "[Crewtree task …]".
 Task protocol:
-- When the task is finished, call complete_task(summary, details?, files?). Keep the summary short and factual.
-- If you are blocked by missing information, call ask_parent(question) instead of guessing, then end your turn; the answer arrives as your next message.
-- Use report_progress for meaningful milestones on long tasks.
+- Every complete_task, ask_parent and report_progress call must pass the taskId from the header of the task you are working on.
+- When the task is finished, call complete_task(taskId, summary, details?, files?). Keep the summary short and factual.
+- If you are blocked by missing information, call ask_parent(taskId, question) instead of guessing, then end your turn; the answer arrives as your next message.
+- Use report_progress(taskId, text) for meaningful milestones on long tasks.
+- Once a task is closed (completed, cancelled or interrupted), never continue or report on it.
 - Stay within the task scope. If you must touch other files, ask_parent first.`;
 
 /** A.3 — Supervisor variant: its parent is the user */
@@ -39,12 +41,53 @@ export function taskMessage(task: TaskPromptInput): string {
     `Scope: ${task.scope.length ? task.scope.join(', ') : '(none declared — ask_parent before editing files)'}`,
   ];
   if (task.files.length) lines.push('Attached files:', ...task.files.map(describeTaskFile));
-  lines.push('', task.instructions, '', 'When finished call complete_task; if blocked call ask_parent.');
+  lines.push(
+    '',
+    task.instructions,
+    '',
+    `When finished call complete_task with taskId "${task.id}"; if blocked call ask_parent with taskId "${task.id}".`
+  );
   return lines.join('\n');
 }
 
-export const NUDGE_MESSAGE =
-  '[Crewtree] Your turn ended without finishing the task. Call complete_task (with a summary) or ask_parent (with a question).';
+export function nudgeMessage(taskId: string): string {
+  return `[Crewtree] Your turn ended without finishing task ${taskId}. Call complete_task (taskId "${taskId}", with a summary) or ask_parent (taskId "${taskId}", with a question).`;
+}
+
+export interface ClosedTaskInfo {
+  id: string;
+  title: string;
+  status: string;
+  /** `Cancelled: <reason>` for cancelled tasks */
+  summary?: string | null;
+}
+
+/**
+ * Prepended to the next message an agent receives after its task was closed without it (server restart,
+ * cancellation): the agent keeps its context, so it must be told that task is over, and a delegating agent
+ * which of its subtasks were closed with it.
+ */
+export function closedTaskNotice(
+  task: ClosedTaskInfo,
+  subtasks: Array<ClosedTaskInfo & { agent: string; progress?: string | null }>
+): string {
+  const why =
+    task.status === 'interrupted'
+      ? 'was interrupted by a Crewtree server restart'
+      : `was ${task.status}${task.summary ? ` (${task.summary})` : ''}`;
+  const lines = [
+    `[Crewtree] Your previous task ${task.id} "${task.title}" ${why}. It is closed: do not continue it or report on it.`,
+  ];
+  if (subtasks.length) {
+    lines.push('The subtasks you had delegated for it were closed too:');
+    for (const t of subtasks) {
+      const progress = t.progress ? ` (last progress: ${t.progress})` : '';
+      lines.push(`- ${t.agent} · ${t.id} "${t.title}": ${t.status}${progress}`);
+    }
+    lines.push('Those agents keep their context. Re-delegate whatever is still needed.');
+  }
+  return lines.join('\n');
+}
 
 export function answerMessage(from: string, answer: string): string {
   return `[Crewtree] Answer from ${from}:\n${answer}`;

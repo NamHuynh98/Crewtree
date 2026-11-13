@@ -9,7 +9,7 @@ import { FakeDriver, FakeScenario, FakeTurnApi } from '../src/runtime/drivers/Fa
 import { ApprovalService } from '../src/approvals/ApprovalService.js';
 import { createToolHooks } from '../src/runtime/toolHooks.js';
 import { FileLockManager } from '../src/files/FileLockManager.js';
-import { parse, recordEvents, waitFor, writeAgent } from './helpers/tree.js';
+import { parse, recordEvents, taskIdIn, waitFor, writeAgent } from './helpers/tree.js';
 
 const sessions = SessionService.getInstance();
 const tm = sessions.taskManager;
@@ -196,6 +196,145 @@ describe('cancellation cascades down the branch (PLAN.md 4.2)', () => {
     expect(tasks.find((t) => t.title === 'Do it')!.resultSummary).toBe('Cancelled: changed my mind');
     const worker = (await sessions.getSessionAgents(session.id)).find((a) => a.agentName === 'worker')!;
     await waitFor(() => !sessions.peekRuntime(worker.id)!.isTurnActive(), 3000, 'worker interrupted');
+  });
+});
+
+describe('stale tool calls are fenced by task ID', () => {
+  it('a call naming a cancelled task cannot touch the next task', async () => {
+    const results: Record<string, { text: string; isError: boolean }> = {};
+    scripts['crewtree-supervisor'] = (content, _s, api) =>
+      (async () => {
+        if (content.startsWith('[Crewtree')) return api.text('noted');
+        const team = parse((await api.callTool('list_agents')).text);
+        for (const title of ['First', 'Second']) {
+          const t = parse(
+            (await api.callTool('delegate_task', { agentId: team[0].agentId, title, instructions: 'x' })).text
+          );
+          await api.callTool('wait_for_tasks', { taskIds: [t.taskId], timeoutSec: 30 });
+        }
+        await api.text('All done');
+      })();
+    let firstTask = '';
+    scripts.worker = (content, _s, api) => {
+      if (!firstTask) {
+        firstTask = taskIdIn(content);
+        return new Promise<void>(() => {}); // busy until cancelled
+      }
+      return (async () => {
+        results.notice = { text: content, isError: false };
+        results.stale = await api.callTool('complete_task', { taskId: firstTask, summary: 'old result' });
+        results.staleProgress = await api.callTool('report_progress', { taskId: firstTask, text: 'old' });
+        results.noId = await api.callTool('complete_task', { summary: 'no id' });
+        results.current = await api.callTool('complete_task', { taskId: taskIdIn(content), summary: 'new result' });
+      })();
+    };
+    const { session } = await newSession([{ agentName: 'worker' }]);
+    await sessions.sendUserMessage(session.id, undefined, 'go');
+    await waitFor(
+      () => sessions.getSessionTasks(session.id).some((t) => t.title === 'First' && t.status === 'running'),
+      3000,
+      'first running'
+    );
+    const first = sessions.getSessionTasks(session.id).find((t) => t.title === 'First')!;
+    sessions.cancelTask(session.id, first.id, 'wrong plan');
+    await waitFor(() => statusOf(session) === 'completed', 5000, 'completed');
+
+    const second = sessions.getSessionTasks(session.id).find((t) => t.title === 'Second')!;
+    expect(results.notice.text).toMatch(
+      new RegExp(`^\\[Crewtree\\] Your previous task ${first.id} "First" was cancelled`)
+    );
+    expect(results.stale).toMatchObject({ isError: true });
+    expect(results.stale.text).toContain(`Task ${first.id} is cancelled and closed`);
+    expect(results.stale.text).toContain(`Your current task is ${second.id}`);
+    expect(results.staleProgress.isError).toBe(true);
+    expect(results.noId.isError).toBe(true);
+    expect(results.noId.text).toMatch(/needs the taskId/);
+    expect(results.current.isError).toBe(false);
+    expect(second).toMatchObject({ status: 'done', resultSummary: 'new result', progress: null });
+    expect(sessions.getSessionTasks(session.id).find((t) => t.id === first.id)!.resultSummary).toBe(
+      'Cancelled: wrong plan'
+    );
+  });
+
+  it('report_progress with no active task is an error, not a silent success', () => {
+    const r = () => tm.reportProgress('no-such-agent', { taskId: 'x', text: 'hi' });
+    expect(r).toThrow(/not assigned to you/);
+    expect(() => tm.reportProgress('no-such-agent', { text: 'hi' })).toThrow(/no active task/);
+  });
+});
+
+describe('server restart mid-task (PLAN.md 20)', () => {
+  it('interrupts the branch, tells the parent and the resumed child, and fences the old task', async () => {
+    const seenBySupervisor: string[] = [];
+    const results: Record<string, { text: string; isError: boolean }> = {};
+    let round = 0;
+    scripts['crewtree-supervisor'] = (content, _s, api) =>
+      (async () => {
+        seenBySupervisor.push(content);
+        if (content.startsWith('[Crewtree] Task')) return api.text('noted');
+        round++;
+        const team = parse((await api.callTool('list_agents')).text);
+        const t = parse(
+          (
+            await api.callTool('delegate_task', {
+              agentId: team[0].agentId,
+              title: round === 1 ? 'Research' : 'Research again',
+              instructions: 'x',
+            })
+          ).text
+        );
+        await api.callTool('wait_for_tasks', { taskIds: [t.taskId], timeoutSec: 600 });
+        await api.text('All done');
+      })();
+    let oldTask = '';
+    scripts.worker = (content, _s, api) => {
+      if (!oldTask) {
+        oldTask = taskIdIn(content);
+        return api.callTool('report_progress', { taskId: oldTask, text: 'compared 3 of 5 libs' }).then(
+          () => new Promise<void>(() => {}) // still working when the server dies
+        );
+      }
+      return (async () => {
+        results.notice = { text: content, isError: false };
+        results.stale = await api.callTool('complete_task', { taskId: oldTask, summary: 'stale' });
+        results.current = await api.callTool('complete_task', { taskId: taskIdIn(content), summary: 'fresh' });
+      })();
+    };
+    const { session } = await newSession([{ agentName: 'worker' }]);
+    await sessions.sendUserMessage(session.id, undefined, 'go');
+    await waitFor(
+      () => sessions.getSessionTasks(session.id).some((t) => t.progress === 'compared 3 of 5 libs'),
+      3000,
+      'worker busy'
+    );
+
+    // "kill -9": every process is gone and in-memory state is lost; the new server reconciles the database
+    await sessions.disposeAll();
+    (tm as any).waits.clear();
+    (sessions as any).reconcileAfterRestart();
+    const afterRestart = sessions.getSessionTasks(session.id);
+    expect(afterRestart.map((t) => t.status)).toEqual(['interrupted', 'interrupted']);
+    const [rootTask, research] = afterRestart;
+
+    await sessions.sendUserMessage(session.id, undefined, 'continue');
+    await waitFor(() => statusOf(session) === 'completed', 5000, 'completed');
+
+    const resumed = seenBySupervisor.at(-1)!;
+    expect(resumed).toContain(`Your previous task ${rootTask.id} "go" was interrupted by a Crewtree server restart`);
+    expect(resumed).toContain(
+      `- worker · ${research.id} "Research": interrupted (last progress: compared 3 of 5 libs)`
+    );
+    expect(resumed.endsWith('continue')).toBe(true);
+
+    expect(results.notice.text).toMatch(
+      new RegExp(`^\\[Crewtree\\] Your previous task ${research.id} "Research" was interrupted`)
+    );
+    expect(results.stale.isError).toBe(true);
+    expect(results.stale.text).toContain(`Task ${research.id} is interrupted and closed`);
+    expect(results.current.isError).toBe(false);
+    const tasks = sessions.getSessionTasks(session.id);
+    expect(tasks.find((t) => t.id === research.id)!.status).toBe('interrupted');
+    expect(tasks.find((t) => t.title === 'Research again')).toMatchObject({ status: 'done', resultSummary: 'fresh' });
   });
 });
 
@@ -538,7 +677,8 @@ describe('no redundant notices (found in the real 3-level run)', () => {
         await api.callTool('wait_for_tasks', { taskIds: [t.taskId], timeoutSec: 5 });
         await api.text('Final report');
       })();
-    scripts.worker = (_c, _s, api) => api.callTool('complete_task', { summary: 'quick done' }).then(() => undefined);
+    scripts.worker = (c, _s, api) =>
+      api.callTool('complete_task', { taskId: taskIdIn(c), summary: 'quick done' }).then(() => undefined);
     const { session } = await newSession([{ agentName: 'worker' }]);
     sessionId = session.id;
     await sessions.sendUserMessage(session.id, undefined, 'go');
