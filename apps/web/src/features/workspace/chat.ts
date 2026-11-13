@@ -8,6 +8,8 @@ export interface ToolCall {
   input: any;
   output?: any;
   isError?: boolean;
+  /** Will never get a result: its turn ended or the server stopped while it ran */
+  interrupted?: boolean;
 }
 
 export interface ChatMessage {
@@ -93,7 +95,7 @@ export function applyChatEvent(prev: ChatMessage[], event: AgentEvent, history =
       }
       return [...prev, { id: nextKey('done'), role: 'assistant', content: p.text || '', ts: event.ts }];
     case 'agent.tool.start': {
-      const call: ToolCall = { tool: p.tool, toolUseId: p.toolUseId, input: p.input };
+      const call: ToolCall = { tool: p.tool, toolUseId: p.toolUseId, input: p.input, interrupted: !!p.interrupted };
       if (last?.role === 'assistant')
         return [...prev.slice(0, -1), { ...last, toolCalls: [...(last.toolCalls || []), call] }];
       return [...prev, { id: nextKey(), role: 'assistant', content: '', toolCalls: [call], ts: event.ts }];
@@ -104,7 +106,9 @@ export function applyChatEvent(prev: ChatMessage[], event: AgentEvent, history =
           ? {
               ...m,
               toolCalls: m.toolCalls.map((tc) =>
-                tc.toolUseId === p.toolUseId ? { ...tc, output: p.output, isError: p.isError } : tc
+                tc.toolUseId === p.toolUseId
+                  ? { ...tc, output: p.output, isError: p.isError, interrupted: !!p.interrupted }
+                  : tc
               ),
             }
           : m

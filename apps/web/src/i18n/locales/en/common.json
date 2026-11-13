@@ -102,6 +102,7 @@
     "spawned": "spawned {{name}}",
     "waitingResults": "waiting for results…",
     "resultsReceived": "results received",
+    "waitInterrupted": "results interrupted",
     "messaged": "message to {{name}}",
     "completed": "task completed",
     "askedParent": "asked its parent",

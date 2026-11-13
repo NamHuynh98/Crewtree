@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { getDb } from '../db/index.js';
+import { closeToolCalls, findOpenToolCalls, SERVER_STOPPED } from '../events/toolCalls.js';
 import { sessionsTable, sessionAgentsTable, messagesTable, eventsTable, fileTouchesTable } from '../db/schema.js';
 import {
   Session,
@@ -120,6 +121,8 @@ export class SessionService implements TaskHost {
         .run();
       TaskManager.interruptStaleTasks();
       ApprovalService.getInstance().expireStale();
+      // Tool calls of processes that are gone never get a result: close them instead of spinning forever
+      closeToolCalls(findOpenToolCalls(), SERVER_STOPPED);
     } catch (e) {
       console.error('Failed to reconcile state after restart:', e);
     }

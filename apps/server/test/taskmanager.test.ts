@@ -10,6 +10,11 @@ import { ApprovalService } from '../src/approvals/ApprovalService.js';
 import { createToolHooks } from '../src/runtime/toolHooks.js';
 import { FileLockManager } from '../src/files/FileLockManager.js';
 import { parse, recordEvents, taskIdIn, waitFor, writeAgent } from './helpers/tree.js';
+import { and, eq } from 'drizzle-orm';
+import { EventBus } from '../src/events/EventBus.js';
+import { closeToolCalls, findOpenToolCalls, SERVER_STOPPED } from '../src/events/toolCalls.js';
+import { getDb } from '../src/db/index.js';
+import { eventsTable } from '../src/db/schema.js';
 
 const sessions = SessionService.getInstance();
 const tm = sessions.taskManager;
@@ -260,6 +265,89 @@ describe('stale tool calls are fenced by task ID', () => {
     const r = () => tm.reportProgress('no-such-agent', { taskId: 'x', text: 'hi' });
     expect(r).toThrow(/not assigned to you/);
     expect(() => tm.reportProgress('no-such-agent', { text: 'hi' })).toThrow(/no active task/);
+  });
+});
+
+describe('tool calls that never get a result', () => {
+  it('cancelling a waiting agent closes its open wait_for_tasks call', async () => {
+    scripts['crewtree-supervisor'] = delegateAndWait('worker');
+    scripts.worker = () => new Promise<void>(() => {}); // never finishes
+    const { session } = await newSession([{ agentName: 'worker' }]);
+    await sessions.sendUserMessage(session.id, undefined, 'go');
+    await waitFor(
+      () => sessions.getSessionTasks(session.id).some((t) => !t.isRoot && t.status === 'running'),
+      3000,
+      'worker running'
+    );
+    const supervisor = sessions.getSession(session.id)!.supervisorAgentId!;
+    const wait = () =>
+      events.find(
+        (e) =>
+          e.sessionAgentId === supervisor &&
+          e.type === 'agent.tool.start' &&
+          (e.payload as any).tool === 'mcp__crewtree__wait_for_tasks'
+      );
+    await waitFor(() => !!wait(), 3000, 'supervisor waiting');
+    const toolUseId = (wait()!.payload as any).toolUseId;
+
+    // Interrupt the Supervisor mid-call (as Interrupt & send does)
+    await sessions.peekRuntime(supervisor)!.interrupt();
+    await waitFor(
+      () =>
+        events.some(
+          (e) =>
+            e.type === 'agent.tool.end' && (e.payload as any).toolUseId === toolUseId && (e.payload as any).interrupted
+        ),
+      3000,
+      'wait_for_tasks closed'
+    );
+    expect(findOpenToolCalls().filter((c) => c.sessionId === session.id && c.sessionAgentId === supervisor)).toEqual(
+      []
+    );
+  });
+
+  it('after a crash, open tool calls in the database are closed and their start is marked', async () => {
+    const { session, id } = await newSession([{ agentName: 'worker' }]);
+    const worker = id('worker');
+    // What a crashed server leaves: a start with no end
+    EventBus.getInstance().emitEvent({
+      sessionId: session.id,
+      sessionAgentId: worker,
+      type: 'agent.tool.start',
+      payload: { tool: 'Bash', toolUseId: 'toolu_dead', input: { command: 'sleep 60' } },
+      ts: Date.now(),
+    });
+    EventBus.getInstance().emitEvent({
+      sessionId: session.id,
+      sessionAgentId: worker,
+      type: 'agent.tool.start',
+      payload: { tool: 'Read', toolUseId: 'toolu_done', input: {} },
+      ts: Date.now(),
+    });
+    EventBus.getInstance().emitEvent({
+      sessionId: session.id,
+      sessionAgentId: worker,
+      type: 'agent.tool.end',
+      payload: { toolUseId: 'toolu_done', output: 'ok', isError: false },
+      ts: Date.now(),
+    });
+    const open = findOpenToolCalls().filter((c) => c.sessionId === session.id);
+    expect(open.map((c) => c.toolUseId)).toEqual(['toolu_dead']);
+
+    closeToolCalls(open, SERVER_STOPPED);
+    expect(findOpenToolCalls().filter((c) => c.sessionId === session.id)).toEqual([]);
+    const stored = getDb()
+      .select()
+      .from(eventsTable)
+      .where(and(eq(eventsTable.sessionAgentId, worker), eq(eventsTable.type, 'agent.tool.start')))
+      .all()
+      .map((e) => JSON.parse(e.payload));
+    // The start itself says so: a chat page that holds it but not the end still shows it closed
+    expect(stored.find((p) => p.toolUseId === 'toolu_dead')).toMatchObject({ interrupted: true });
+    expect(stored.find((p) => p.toolUseId === 'toolu_done').interrupted).toBeUndefined();
+    expect(
+      events.find((e) => e.type === 'agent.tool.end' && (e.payload as any).toolUseId === 'toolu_dead')?.payload
+    ).toMatchObject({ isError: true, interrupted: true, output: SERVER_STOPPED });
   });
 });
 

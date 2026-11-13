@@ -102,6 +102,7 @@
     "spawned": "đã tạo {{name}}",
     "waitingResults": "đang chờ kết quả…",
     "resultsReceived": "đã nhận kết quả",
+    "waitInterrupted": "không nhận được kết quả (đã bị gián đoạn)",
     "messaged": "nhắn cho {{name}}",
     "completed": "đã hoàn thành task",
     "askedParent": "đã hỏi agent cha",
