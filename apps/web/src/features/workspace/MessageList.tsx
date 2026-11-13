@@ -31,9 +31,11 @@ function OrchestrationChip({
       : name === 'spawn_agent'
         ? t('chat.spawned', { name: call.input?.alias ?? call.input?.agentName ?? '' })
         : name === 'wait_for_tasks'
-          ? call.output === undefined
-            ? t('chat.waitingResults')
-            : t('chat.resultsReceived')
+          ? call.interrupted
+            ? t('chat.waitInterrupted')
+            : call.output === undefined
+              ? t('chat.waitingResults')
+              : t('chat.resultsReceived')
           : name === 'answer_child' || name === 'message_agent'
             ? t('chat.messaged', { name: targetName })
             : name === 'complete_task'
@@ -53,9 +55,9 @@ function OrchestrationChip({
           }
         }}
       >
-        {name === 'wait_for_tasks' && call.output === undefined ? (
+        {name === 'wait_for_tasks' && call.output === undefined && !call.interrupted ? (
           <Loader2 className="h-3 w-3 animate-spin" />
-        ) : call.isError ? (
+        ) : call.isError || call.interrupted ? (
           <XCircle className="h-3 w-3 text-red-500" />
         ) : (
           <ChevronRight className="h-3 w-3" />
@@ -78,7 +80,7 @@ function ToolChip({ call, onOpenFile }: { call: ToolCall; onOpenFile?: (path: st
   return (
     <details
       className={`rounded-md border px-2 py-1 font-mono text-[11px] ${
-        call.isError
+        call.isError || call.interrupted
           ? 'border-red-200 bg-red-50 text-red-600 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400'
           : call.output !== undefined
             ? 'border-border bg-black/[0.03] dark:bg-white/[0.03]'
@@ -86,7 +88,7 @@ function ToolChip({ call, onOpenFile }: { call: ToolCall; onOpenFile?: (path: st
       }`}
     >
       <summary className="flex cursor-pointer select-none list-none items-center gap-1.5">
-        {call.isError ? (
+        {call.isError || call.interrupted ? (
           <XCircle className="h-3 w-3 shrink-0 text-red-400" />
         ) : call.output !== undefined ? (
           <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />

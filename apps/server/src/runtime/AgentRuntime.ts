@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { AgentDriver, DriverOptions, DriverToolHooks, PermissionDecision } from './AgentDriver.js';
+import { closeToolCalls, TURN_ENDED } from '../events/toolCalls.js';
 import { SdkDriver } from './drivers/SdkDriver.js';
 import { FakeDriver } from './drivers/FakeDriver.js';
 import { CliDriver } from './drivers/CliDriver.js';
@@ -81,6 +82,8 @@ export class AgentRuntime {
   private parsed: ParsedAgentSnapshot;
   private status: AgentStatus;
   private turnActive = false;
+  /** Tool calls of the current turn still waiting for their result (toolUseId → parentToolUseId) */
+  private openTools = new Map<string, string | undefined>();
   private lastUserMessage?: string;
   private throttleRetries = 0;
   private idleTimer?: NodeJS.Timeout;
@@ -364,6 +367,8 @@ export class AgentRuntime {
     }
 
     for (const evt of this.normalizer.normalize(raw)) {
+      if (evt.type === 'agent.tool.start') this.openTools.set(evt.payload.toolUseId, evt.payload.parentToolUseId);
+      else if (evt.type === 'agent.tool.end') this.openTools.delete(evt.payload.toolUseId);
       this.eventBus.emitEvent(evt);
       if (evt.type === 'agent.text.done' && !evt.payload.parentToolUseId) {
         this.lastText = evt.payload.text;
@@ -476,7 +481,22 @@ export class AgentRuntime {
     }, delay);
   }
 
+  /** A turn that ended (interrupt, error, dispose) leaves no tool call shown as running forever. */
+  private closeOpenTools() {
+    if (!this.openTools.size) return;
+    const agent = this.options.sessionAgent;
+    const calls = [...this.openTools].map(([toolUseId, parentToolUseId]) => ({
+      sessionId: agent.sessionId,
+      sessionAgentId: agent.id,
+      toolUseId,
+      parentToolUseId,
+    }));
+    this.openTools.clear();
+    closeToolCalls(calls, TURN_ENDED);
+  }
+
   private endTurn() {
+    this.closeOpenTools();
     this.turnActive = false;
     this.releaseSlot();
     this.setStatus('idle');
@@ -502,6 +522,7 @@ export class AgentRuntime {
       }
     }
 
+    this.closeOpenTools();
     this.turnActive = false;
     this.releaseSlot();
     this.clearIdleTimer();
@@ -633,6 +654,7 @@ export class AgentRuntime {
   }
 
   public async dispose(): Promise<void> {
+    this.closeOpenTools();
     this.disposed = true;
     this.turnActive = false;
     this.options.limiter?.cancel(this.options.sessionAgent.id, 'Agent disposed');
